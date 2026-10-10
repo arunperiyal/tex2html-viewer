@@ -3,8 +3,6 @@
 //
 //   <scope>decks/<folder>/<path>  imported decks, from the Origin Private File
 //                                 System (decks/<folder>/<path>)
-//   <scope>links/<id>/<path>      linked folders, read in place through the
-//                                 folder handle kept in IndexedDB
 //   everything else in scope      the app itself: cached at install, so it
 //                                 starts offline after the first visit
 //
@@ -49,7 +47,6 @@ self.addEventListener("fetch", (e) => {
   if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return;
   const rel = url.pathname.slice(scope.pathname.length);
   if (rel.startsWith("decks/")) e.respondWith(serveDeck(rel.slice(6)));
-  else if (rel.startsWith("links/")) e.respondWith(serveLink(rel.slice(6)));
   else if (!DEV && e.request.method === "GET") e.respondWith(serveApp(e.request));
 });
 
@@ -100,38 +97,6 @@ async function serveDeck(rel) {
   }
 }
 
-async function serveLink(rel) {
-  const parts = pathParts(rel);
-  if (!parts || parts.length < 2) return notFound();
-  const link = await getLink(parts[0]).catch(() => null);
-  if (!link) return notFound();
-  try {
-    if ((await link.handle.queryPermission({ mode: "read" })) !== "granted") {
-      return new Response("The viewer has no permission to read this folder. " +
-                          "Go back to the decks and open it again.", { status: 403 });
-    }
-    let dir = link.handle;
-    for (const p of link.root ? link.root.split("/") : []) dir = await dir.getDirectoryHandle(p);
-    return await fileResponse(dir, parts.slice(1));
-  } catch {
-    return notFound();
-  }
-}
-
 function notFound() {
   return new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain" } });
-}
-
-// linked folders: IndexedDB "tex2html-viewer", store "links" (see src/links.ts)
-function getLink(id) {
-  return new Promise((resolve, reject) => {
-    const open = indexedDB.open("tex2html-viewer", 1);
-    open.onupgradeneeded = () => open.result.createObjectStore("links", { keyPath: "id" });
-    open.onerror = () => reject(open.error);
-    open.onsuccess = () => {
-      const req = open.result.transaction("links").objectStore("links").get(id);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    };
-  });
 }

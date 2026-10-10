@@ -7,9 +7,9 @@ It is made for decks produced by tex2html (`--pack` zips), not as a general
 HTML viewer. The first goal is one job done well: open a pack and present it,
 exactly as a desktop browser shows `slides.html`. Modes (presenter, audience,
 shared viewing) are for later. To show the slides to others — in a call, on a
-projector, on a TV — the user shares or mirrors their screen with whatever they
-already use (Meet, Zoom, Teams, Android screen cast, a cable to a projector).
-The viewer adds no sharing of its own.
+projector, on a TV, or on the audience's own devices — the user shares or
+mirrors their screen with tools made for it (see Showing the slides to
+others). The viewer adds no sharing of its own.
 
 ## Why
 
@@ -27,7 +27,24 @@ once it is imported.
 3. Open it in tex2html viewer: the deck is imported into the app's library.
 4. Tap the deck: it opens full screen, ready to present with swipe, tap,
    keyboard or a Bluetooth clicker.
-5. To show it to others, share or mirror the screen with the usual tools.
+5. To show it to others, share or mirror the screen (see below).
+
+## Showing the slides to others
+
+The viewer keeps the screen clean (nothing over the slides), so any mirroring
+tool shows just the deck:
+
+- **The audience's own phones and laptops:** **ScreenStream** (open source, on
+  the presenting Android phone) mirrors the screen to any browser, video only.
+  Local mode works over the room's Wi-Fi or the phone's hotspot with no
+  internet: the audience scans a QR code or opens a link. Global mode works
+  over the internet with a stream ID and password. The phone sends a stream to
+  each viewer, so it suits small to medium groups; turn on Do Not Disturb so
+  notifications are not mirrored.
+- **A projector or TV:** a USB-C to HDMI cable (phones with video output),
+  Android Cast or Screen mirroring (Chromecast, Google TV, Miracast), or
+  scrcpy to a laptop connected to the projector.
+- **A remote meeting:** sharing the screen in Meet, Zoom or Teams.
 
 ## Goals
 
@@ -69,10 +86,6 @@ tex2html-viewer/
 
 ### Storage, per platform
 
-A deck is either **imported** (a zip copied into the app's storage, on every
-platform) or **linked** (a folder read in place, where the platform allows it;
-see Adding a deck).
-
 - **Web:** the zip is read in the browser by random access (stored entries,
   the bulk of a pack, are copied as they are; deflated ones go through
   `DecompressionStream`), files go to the Origin Private File System, and a
@@ -85,13 +98,12 @@ see Adding a deck).
   `WebViewAssetLoader` under `https://appassets.androidplatform.net/`. A small
   JavaScript bridge lets the web code list, import and delete decks.
 - A storage interface in the web code hides the difference: `listDecks`,
-  `importZip`, `linkFolder`, `deleteDeck`, `deckUrl`.
+  `importZip`, `deleteDeck`, `deckUrl`.
 
-### Adding a deck
+### Import
 
-**Import a zip** — the main way, on every platform. A zip is one file, easy to
-move by Drive, mail or USB, and importing it is mostly a copy (a pack's images
-are stored uncompressed).
+A zip is one file, easy to move by Drive, mail or USB, and importing it is
+mostly a copy (a pack's images are stored uncompressed).
 
 - Web: file picker or drag and drop. Android: system file picker, "Open with",
   and the share menu (`application/zip`).
@@ -102,31 +114,10 @@ are stored uncompressed).
   swap it in at the end, so a failed import never leaves half a deck.
 - Re-importing a deck with the same name offers to replace it.
 
-**Open a folder (read in place)** — where the platform can keep access to a
-folder, so there is no copy, no doubled space, and the deck updates when its
-files are replaced (re-pack, copy the folder over, open):
-
-- **Android app:** the system folder picker (`ACTION_OPEN_DOCUMENT_TREE`); the
-  app keeps the permission (`takePersistableUriPermission`) and serves the
-  folder's files to the WebView through its own path handler. An index of the
-  folder (path → document) is built when the deck is opened, since looking up
-  thousands of files one by one through the storage framework is slow.
-- **Desktop Chrome and Edge:** the folder picker (`showDirectoryPicker`); the
-  folder handle is kept in IndexedDB, and the service worker reads files
-  through it. The browser asks again for permission when the deck is reopened
-  after a restart (one click).
-- **Not in phone browsers:** Chrome on Android offers only a one-time file
-  list that has to be copied every time, and Safari offers nothing, so phone
-  browsers import zips only.
-- A linked folder that was moved, deleted or whose permission was taken back
-  shows in the library as "folder not found", with a button to link it again.
-
 ### Library screen
 
-- Decks with title (the page's `<title>`), size and import date; newest first;
-  linked folders are marked as such.
-- Open, delete (imported decks), unlink (linked folders: their files are left
-  untouched), replace with a newer pack.
+- Decks with title (the page's `<title>`), size and import date; newest first.
+- Open, delete, replace with a newer pack.
 - When empty: how to make a pack and import it.
 
 ### Viewer screen
@@ -177,17 +168,14 @@ files are replaced (re-pack, copy the folder over, open):
 ## Testing
 
 - Unit: deck detection in zips, unsafe entries, replace and cancel, the storage
-  interface, linked folders (missing folder, permission lost, files replaced).
+  interface.
 - Browser (Playwright): import the template's pack, every slide renders
   (deck.js loaded, MathJax typeset, TikZ images present, animations play),
-  keys and steps work, resume works; then the same offline. Linked folders are
-  tested with a folder handle made in the test (the native picker cannot be
-  driven by Playwright).
+  keys and steps work, resume works; then the same offline.
 - Android: an instrumented test importing the template pack; a manual checklist
   on a real phone in airplane mode: every slide type, swipe/tap, clicker, volume
-  keys, rotation, screen off/on, back button, resume, a linked folder (open,
-  replace its files, reopen; move it away), and the deck shown through a screen
-  share and a screen cast.
+  keys, rotation, screen off/on, back button, resume, and the deck mirrored
+  with ScreenStream and shown through a screen cast.
 - The real talk (~680 MB): import time and memory, on Android and in a mobile
   browser.
 
@@ -202,13 +190,11 @@ Each milestone ends with something usable.
 2. **M1 – web viewer.** *Done.* Library, full-screen viewer (landscape on
    phones, screen kept on, controls only on Esc or a tap in the corner), keys,
    resume, back-button guard, offline after the first visit, installable,
-   persistent-storage status; open a folder in desktop Chrome and Edge (read in
-   place). Known: in Chrome on Android, the first Back after leaving full
+   persistent-storage status. Known: in Chrome on Android, the first Back after leaving full
    screen is swallowed by Chrome, so closing a deck from full screen takes one
    more press (the Android app handles Back itself).
 3. **M2 – Android app.** The same web code in a WebView, with native import and
-   storage, "Open with" and the share menu, open a folder (read in place, with
-   a kept permission), immersive full screen, keys, clicker and volume keys,
+   storage, "Open with" and the share menu, immersive full screen, keys, clicker and volume keys,
    back guard. In tex2html: the presenter-hint change.
 4. **M3 – large decks and release.** Performance with the 680 MB talk on both
    platforms, signed APK, README section in tex2html.
@@ -225,10 +211,9 @@ Each milestone ends with something usable.
 
 - The name is **tex2html viewer** for now.
 - The first goal is viewing: open a pack and present it. Showing the slides to
-  others is done with the user's existing screen-share or mirroring tools;
-  modes are for later.
+  others is done with mirroring tools — ScreenStream for the audience's own
+  devices; modes are for later.
 - Targets: web (GitHub Pages) and Android, from one web codebase.
 - The viewer has its own repository, `tex2html-viewer`.
-- Decks come in as zips on every platform. Where a folder can be kept open
-  (the Android app, desktop Chrome and Edge), a folder can also be opened and
-  read in place, without a copy; phone browsers import zips only.
+- Decks come in as zips. Opening a folder in place was tried in M1 and
+  dropped: zips are enough.

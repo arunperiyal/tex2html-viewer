@@ -16,11 +16,10 @@ npm test           # Playwright, with the installed Chrome, on a production buil
 npm run build      # static files in web/dist
 ```
 
-Decks are imported into the browser's private file storage (OPFS), or linked
-as a folder read in place (desktop Chrome and Edge). The service worker
-(`web/src/sw.js`, built by `vite.config.ts` with the list of files to cache)
-serves `decks/<folder>/…` and `links/<id>/…`, so a deck's relative paths
-resolve, and caches the app so it starts offline. Service workers need
+Decks are imported into the browser's private file storage (OPFS). The
+service worker (`web/src/sw.js`, built by `vite.config.ts` with the list of
+files to cache) serves `decks/<folder>/…` from there, so a deck's relative
+paths resolve, and caches the app so it starts offline. Service workers need
 `https://` or `localhost`.
 
 `fixtures/template.zip` is tex2html's template deck, packed. Rebuild it from a
