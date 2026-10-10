@@ -178,6 +178,42 @@ test("the back button closes the deck only on a second press", async ({ page }) 
   await expect(page.locator("#library")).toBeVisible();
 });
 
+test("Slides shows the slide grid; a thumbnail goes to its slide", async ({ page }) => {
+  await importPack(page, PACK);
+  await expect(page.frameLocator("#frame").locator("section.slide.active")).toHaveCount(1);
+  await expect(page.locator("#slides")).toBeVisible();
+  const deck = page.frameLocator("#frame");
+  await page.locator("#slides").click();
+  await expect(deck.locator(".deck-grid-cell")).toHaveCount(29);
+  await expect(deck.locator(".deck-grid-cell.current .deck-grid-num")).toHaveText("1");
+  await deck.locator(".deck-grid-cell").nth(6).click();
+  await expect(deck.locator(".deck-grid")).toHaveCount(0);
+  await expect.poll(() => activeSlide(page)).toBe(6);
+
+  // Esc closes the grid (and does not toggle the bar); so does Back, before
+  // it would warn about closing the deck
+  await page.waitForTimeout(3500);                           // the bar shown on opening hides
+  await page.keyboard.press("g");
+  await expect(deck.locator(".deck-grid")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(deck.locator(".deck-grid")).toHaveCount(0);
+  await expect(page.locator("#bar")).not.toHaveClass(/show/);
+  await page.keyboard.press("g");
+  await expect(deck.locator(".deck-grid")).toHaveCount(1);
+  await page.evaluate(() => history.back());
+  await expect(deck.locator(".deck-grid")).toHaveCount(0);
+  await expect(page.locator("#viewer")).toBeVisible();
+  await expect(page.locator("#toast")).toBeHidden();
+});
+
+test("decks from an older tex2html, without the grid, have no Slides button", async ({ page }) => {
+  await importPack(page, makeZip({ "old/slides.html":
+    "<!DOCTYPE html><title>Old</title><div class=deck><section class='slide active'>One</section></div>" }));
+  await expect(page.locator("#viewer")).toBeVisible();
+  await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(1);
+  await expect(page.locator("#slides")).toBeHidden();
+});
+
 // ---------------------------------------------------------------- read from the zip
 
 test("an imported deck is kept as its zip, not unpacked", async ({ page }) => {
@@ -280,5 +316,16 @@ test.describe("on a touch screen", () => {
     await expect(page.locator("#viewer")).toBeVisible();
     await page.locator("#notes").tap();                      // a second tap uses the bar
     await expect(page.frameLocator("#frame").locator("#t2hv-notes")).toHaveCount(1);
+  });
+
+  test("a tap on a thumbnail goes to exactly that slide", async ({ page }) => {
+    await importPack(page, PACK);
+    await expect(page.frameLocator("#frame").locator("section.slide.active")).toHaveCount(1);
+    await page.locator("#slides").tap();
+    const deck = page.frameLocator("#frame");
+    await expect(deck.locator(".deck-grid-cell")).toHaveCount(29);
+    await deck.locator(".deck-grid-cell").nth(9).tap();      // not also a "next" tap
+    await expect(deck.locator(".deck-grid")).toHaveCount(0);
+    await expect.poll(() => activeSlide(page)).toBe(9);
   });
 });
