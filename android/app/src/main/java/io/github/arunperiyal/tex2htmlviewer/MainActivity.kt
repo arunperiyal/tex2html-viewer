@@ -254,6 +254,7 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun toggleFullscreen() = runOnUiThread { hideBars(!immersive) }
         @JavascriptInterface fun listDecks(): String = decks.list().toString()
         @JavascriptInterface fun deleteDeck(id: String) = decks.delete(id)
+        @JavascriptInterface fun storage(): String = decks.storage().toString()
         @JavascriptInterface fun cancelImport() { decks.cancelled = true }
     }
 

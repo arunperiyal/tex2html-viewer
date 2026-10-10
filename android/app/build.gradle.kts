@@ -14,9 +14,27 @@ android {
         versionName = "0.1.0"
     }
 
+    // Release signing: the key stays outside the repo. Its location and
+    // passwords come from Gradle properties (~/.gradle/gradle.properties, or
+    // ORG_GRADLE_PROJECT_t2hv_... in the environment); without them the
+    // release APK is built unsigned.
+    val signing = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+        .associateWith { providers.gradleProperty("t2hv.$it").orNull }
+    signingConfigs {
+        if (signing.values.all { it != null }) create("release") {
+            storeFile = file(signing.getValue("storeFile")!!)
+            storePassword = signing.getValue("storePassword")
+            keyAlias = signing.getValue("keyAlias")
+            keyPassword = signing.getValue("keyPassword")
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {

@@ -219,10 +219,11 @@ Each milestone ends with something usable.
    internet permission. Debug APK built by GitHub Actions. In tex2html:
    `slides.html?nopresenter` hides the presenter view, which cannot open in
    the app.
-4. **M3 – large decks and release.** Large decks: *done* (read from the zip;
-   a 700 MB pack imports in about 2 s on the emulator and in desktop Chrome,
-   frames are served in a few milliseconds) — to confirm on a real phone.
-   Signed release APK.
+4. **M3 – large decks and release.** *Done.* Large decks are read from the
+   zip: a 700 MB talk is confirmed on a phone, imports in seconds,
+   and frames are served in a few milliseconds. Release APKs are shrunk and
+   signed with a release key kept outside the repo
+   (`scripts/release-apk.sh`), and published on GitHub releases.
 
 ## Later
 
