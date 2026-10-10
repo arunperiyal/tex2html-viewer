@@ -16,11 +16,35 @@ npm test           # Playwright, with the installed Chrome, on a production buil
 npm run build      # static files in web/dist
 ```
 
-Decks are imported into the browser's private file storage (OPFS). The
-service worker (`web/src/sw.js`, built by `vite.config.ts` with the list of
-files to cache) serves `decks/<folder>/…` from there, so a deck's relative
-paths resolve, and caches the app so it starts offline. Service workers need
+Decks are kept as their zip in the browser's private file storage (OPFS),
+with an index of where each file is. The service worker (`web/src/sw.js`,
+built by `vite.config.ts` with the list of files to cache) serves
+`decks/<folder>/…` by reading the file out of the zip, so a deck's relative
+paths resolve without unpacking anything, and caches the app so it starts
+offline. Service workers need
 `https://` or `localhost`.
 
 `fixtures/template.zip` is tex2html's template deck, packed. Rebuild it from a
 tex2html checkout with `scripts/make-fixtures.sh ../tex2html`.
+
+## Development (Android)
+
+The Android app (`android/`) shows the same web app in a WebView: the build
+bundles `web/` (built with base `/`) into the APK, served under
+`https://appassets.androidplatform.net/`. Decks are kept natively
+(`DeckStore.kt`: the zip copied into the app's files, served under
+`native/<id>/` with `ZipFile`). It adds the system file picker,
+"Open with" and the share menu for zips, immersive full screen in landscape
+with the screen kept on, Back through the deck's guard, and the volume keys
+for previous / next.
+
+```sh
+cd android
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew assembleDebug   # needs a full JDK 17+
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Set `sdk.dir` in `android/local.properties` (or `ANDROID_HOME`) to the Android
+SDK. GitHub Actions builds the debug APK on every push (artifact
+`tex2html-viewer-debug-apk`).
+

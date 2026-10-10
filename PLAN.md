@@ -86,19 +86,29 @@ tex2html-viewer/
 
 ### Storage, per platform
 
-- **Web:** the zip is read in the browser by random access (stored entries,
-  the bulk of a pack, are copied as they are; deflated ones go through
-  `DecompressionStream`), files go to the Origin Private File System, and a
-  **service worker** answers requests for `/decks/<id>/…` from it. The app itself is cached by the service worker, so it
-  starts offline after the first visit. It asks for persistent storage, so the
+A deck is kept as its zip and read from it: a pack's index (the zip's central
+directory) says where each file is, and its images are stored uncompressed,
+so a requested file is read straight out of the zip. Nothing is unpacked: an
+import is one sequential copy, and a deck takes its zip's size once. (The
+first version unpacked about 1,500 files per deck; a 700 MB talk took 15
+minutes to import in the Android app. Read from the zip, it takes seconds.)
+
+- **Web:** the zip is copied into the Origin Private File System as one file
+  (`decks/<folder>/pack.zip`, plus `index.json`: where each file is), and a
+  **service worker** answers requests for `decks/<folder>/…` by reading the
+  entry from the zip (stored entries as they are, deflated ones through
+  `DecompressionStream`). Decks unpacked by the first version are still
+  served. The app itself is cached by the service worker, so it starts
+  offline after the first visit. It asks for persistent storage, so the
   browser does not clear large decks.
-- **Android:** a WebView shows the same web app, bundled in the APK. Import and
-  storage are native (faster for large zips, no browser storage limits): files
-  are unpacked to the app's internal storage under `decks/<id>/` and served with
-  `WebViewAssetLoader` under `https://appassets.androidplatform.net/`. A small
-  JavaScript bridge lets the web code list, import and delete decks.
-- A storage interface in the web code hides the difference: `listDecks`,
-  `importZip`, `deleteDeck`, `deckUrl`.
+- **Android:** a WebView shows the same web app, bundled in the APK and served
+  with `WebViewAssetLoader` under `https://appassets.androidplatform.net/`.
+  Decks are kept natively (`DeckStore`): the zip is copied into the app's
+  files once and served under `native/<id>/…` with `ZipFile`, so deck bytes
+  never pass through the page (handing a 700 MB zip to the page took
+  minutes, or failed). The page lists, opens and deletes decks through the
+  bridge and shows the import's progress. Zips picked in the system picker,
+  opened with the app or shared to it are imported the same way.
 
 ### Import
 
@@ -109,10 +119,11 @@ mostly a copy (a pack's images are stored uncompressed).
   and the share menu (`application/zip`).
 - Find the deck in the zip: one folder with `slides.html` (what `--pack`
   writes), or `slides.html` at the root.
-- Stream with progress and cancel; check free space first; reject unsafe
-  entries (absolute paths, `..`, symlinks); unpack to a temporary place and
-  swap it in at the end, so a failed import never leaves half a deck.
-- Re-importing a deck with the same name offers to replace it.
+- Copy with progress and cancel; check free space first; reject unsafe
+  entries (absolute paths, `..`, symlinks); the deck is recorded only once the
+  copy is complete, so a failed or cancelled import never leaves half a deck.
+- Re-importing a deck with the same name replaces it once the new copy is
+  complete (its saved position is kept).
 
 ### Library screen
 
@@ -138,9 +149,10 @@ mostly a copy (a pack's images are stored uncompressed).
   it opens any existing pack.
 - deck.js already keeps `location.hash` (`#slide.step`) updated while
   navigating; the viewer reads it to resume a deck where it was left.
-- One small deck.js change, for the Android app (M2), made in the tex2html
-  repo: hide the presenter-view hint (`S`) where a second window cannot open.
-- tex2html's README gets a short section pointing to the viewer.
+- `slides.html?nopresenter` (deck.js, added in M2): the Android app opens decks
+  this way, so the presenter view, which cannot open there, is left out of the
+  help and S does nothing. Older packs simply show it.
+- tex2html's README points phones and tablets to the viewer (added in M2).
 - Test packs in `fixtures/` are made from tex2html's template deck with
   `--pack`; a script rebuilds them from a tex2html checkout when deck.js
   changes.
@@ -193,11 +205,18 @@ Each milestone ends with something usable.
    persistent-storage status. Known: in Chrome on Android, the first Back after leaving full
    screen is swallowed by Chrome, so closing a deck from full screen takes one
    more press (the Android app handles Back itself).
-3. **M2 – Android app.** The same web code in a WebView, with native import and
-   storage, "Open with" and the share menu, immersive full screen, keys, clicker and volume keys,
-   back guard. In tex2html: the presenter-hint change.
-4. **M3 – large decks and release.** Performance with the 680 MB talk on both
-   platforms, signed APK, README section in tex2html.
+3. **M2 – Android app.** *Done.* The same web code in a WebView: the system
+   file picker, "Open with" and the share menu, immersive full screen in
+   landscape with the screen kept on, keys and clicker, volume keys as
+   previous / next, Back through the page's guard (handled natively, so the
+   Chrome quirk does not apply), links in a deck opened in the browser, no
+   internet permission. Debug APK built by GitHub Actions. In tex2html:
+   `slides.html?nopresenter` hides the presenter view, which cannot open in
+   the app.
+4. **M3 – large decks and release.** Large decks: *done* (read from the zip;
+   a 700 MB pack imports in about 2 s on the emulator and in desktop Chrome,
+   frames are served in a few milliseconds) — to confirm on a real phone.
+   Signed release APK.
 
 ## Later
 

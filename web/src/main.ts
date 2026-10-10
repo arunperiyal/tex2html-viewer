@@ -17,6 +17,14 @@ const bar = $<HTMLDivElement>("bar");
 const toast = $<HTMLDivElement>("toast");
 
 const touch = matchMedia("(pointer: coarse)").matches;
+
+/** Inside the Android app: it provides full screen, landscape and keeping the
+ * screen on natively (android/.../MainActivity.kt). */
+interface AppBridge {
+  viewerOpened(): void; viewerClosed(): void; toggleFullscreen(): void;
+  listDecks(): string; deleteDeck(id: string): void; cancelImport(): void;   // decks kept by the app
+}
+const app = (window as unknown as { TexViewer?: AppBridge }).TexViewer;
 let importing: AbortController | null = null;
 
 // the service worker serves the decks; nothing works without it
@@ -40,8 +48,17 @@ function showError(msg: string) {
   errorBox.hidden = !msg;
 }
 
+/** The decks the app keeps (natively, read from their zip). */
+function appDecks(): Deck[] {
+  if (!app) return [];
+  const list = JSON.parse(app.listDecks()) as { id: string; name: string; title: string; bytes: number; importedAt: number }[];
+  return list.map((d) => ({ folder: d.id, name: d.name, title: d.title, bytes: d.bytes,
+                            importedAt: d.importedAt, app: true }));
+}
+
 async function render() {
-  const decks = await listDecks();
+  // in the app: its own decks, and any it imported into browser storage before
+  const decks = [...appDecks(), ...await listDecks()].sort((a, b) => b.importedAt - a.importedAt);
   list.replaceChildren(...decks.map(deckItem));
   empty.hidden = decks.length > 0;
   renderStorage();
@@ -62,7 +79,8 @@ function deckItem(d: Deck): HTMLLIElement {
   remove.title = "Delete this deck from the device";
   remove.addEventListener("click", async () => {
     if (!confirm(`Delete "${d.title}" from this device?`)) return;
-    await deleteDeck(d.folder);
+    if (d.app) app?.deleteDeck(d.folder);
+    else await deleteDeck(d.folder);
     render();
   });
   li.append(open, remove);
@@ -74,10 +92,12 @@ async function renderStorage() {
   const kept = await navigator.storage.persisted?.().catch(() => false);
   const used = est?.usage !== undefined ? `${mb(est.usage)} used` : "";
   const free = est?.quota !== undefined && est.usage !== undefined ? `, ${mb(est.quota - est.usage)} free` : "";
-  storageInfo.textContent = `Storage: ${used}${free}. ` + (kept
-    ? "Kept permanently by the browser."
-    : "The browser may clear it when the device is low on space; installing the viewer " +
-      "(the browser's “Install app” or “Add to home screen”) keeps decks safer.");
+  // in the app, decks are app data: the browser's eviction rules do not apply
+  const note = app ? ""
+    : kept ? " Kept permanently by the browser."
+    : " The browser may clear it when the device is low on space; installing the viewer " +
+      "(the browser's “Install app” or “Add to home screen”) keeps decks safer.";
+  storageInfo.textContent = `Storage: ${used}${free}.${note}`;
 }
 
 async function importFile(file: File) {
@@ -135,13 +155,17 @@ function savedPosition(d: Deck): string {
 function openDeck(d: Deck) {
   showError("");
   current = d;
-  frame.src = deckUrl(d) + savedPosition(d);
+  // in the app no second window can open: tell deck.js to leave out S
+  frame.src = deckUrl(d) + (app ? "?nopresenter" : "") + savedPosition(d);
   library.hidden = true;
   viewer.hidden = false;
   history.pushState({ viewer: true }, "");
   backArmed = false;
-  if (touch) enterFullscreen();             // phones: full screen and landscape
-  keepAwake();
+  if (app) app.viewerOpened();              // the app: immersive, landscape, awake
+  else {
+    if (touch) enterFullscreen();           // phones: full screen and landscape
+    keepAwake();
+  }
   clearInterval(positionTimer);
   positionTimer = window.setInterval(savePosition, 1000);
   showBar();
@@ -151,6 +175,7 @@ function closeDeck() {
   savePosition();
   clearInterval(positionTimer);
   current = null;
+  app?.viewerClosed();
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   wakeLock?.release().catch(() => {});
   wakeLock = null;
@@ -172,6 +197,13 @@ function closeFromUi() {
 }
 
 // the back button: a first press only warns, so a stray press does not end a talk
+function armBack() {
+  backArmed = true;
+  showToast("Press back again to close the deck");
+  setTimeout(() => { backArmed = false; }, 2500);
+}
+
+// browsers: Back goes through the history entry pushed when the deck opened
 window.addEventListener("popstate", () => {
   if (ignorePop) { ignorePop = false; return; }
   if (!current) return;
@@ -179,11 +211,17 @@ window.addEventListener("popstate", () => {
     closeDeck();
     return;
   }
-  backArmed = true;
   history.pushState({ viewer: true }, "");
-  showToast("Press back again to close the deck");
-  setTimeout(() => { backArmed = false; }, 2500);
+  armBack();
 });
+
+// the Android app calls this on Back while a deck is open (it does not use
+// the page's history, whose entries Chromium may skip)
+(window as unknown as { t2hvBack: () => void }).t2hvBack = () => {
+  if (!current) return;
+  if (backArmed) closeFromUi();
+  else armBack();
+};
 
 async function enterFullscreen() {
   try {
@@ -194,7 +232,8 @@ async function enterFullscreen() {
 }
 
 function toggleFullscreen() {
-  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  if (app) app.toggleFullscreen();
+  else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   else enterFullscreen();
   focusDeck();
 }
@@ -282,7 +321,10 @@ fileInput.addEventListener("change", () => {
   const f = fileInput.files?.[0];
   if (f) importFile(f);
 });
-$("cancel").addEventListener("click", () => importing?.abort());
+$("cancel").addEventListener("click", () => {
+  importing?.abort();
+  if (app && appImporting) app.cancelImport();
+});
 drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
 drop.addEventListener("dragleave", () => drop.classList.remove("over"));
 drop.addEventListener("drop", (e) => {
@@ -291,4 +333,34 @@ drop.addEventListener("drop", (e) => {
   const f = e.dataTransfer?.files?.[0];
   if (f) importFile(f);
 });
+// the Android app imports zips itself (picker, "Open with", share menu) and
+// tells the page how it goes
+let appImporting = "";
+(window as unknown as { t2hvApp: object }).t2hvApp = {
+  importStarted(name: string) {
+    showError("");
+    appImporting = name;
+    progress.hidden = false;
+    progressBar.removeAttribute("value");                 // size not known yet
+    progressText.textContent = `Importing ${name}…`;
+  },
+  importProgress(done: number, total: number) {
+    progressBar.value = total > 0 ? done / total : 0;
+    progressText.textContent = `Importing ${appImporting}: ${mb(done)}${total > 0 ? ` of ${mb(total)}` : ""}`;
+  },
+  async importDone(deck: { id: string; name: string; title: string; bytes: number; importedAt: number }) {
+    appImporting = "";
+    progress.hidden = true;
+    await render();
+    openDeck({ folder: deck.id, name: deck.name, title: deck.title, bytes: deck.bytes,
+               importedAt: deck.importedAt, app: true });
+  },
+  importFailed(message: string) {
+    const name = appImporting;
+    appImporting = "";
+    progress.hidden = true;
+    showError(message === "cancelled" ? "Import cancelled." : `Could not import ${name}: ${message}`);
+  },
+};
+
 ready.then(render).catch((e: Error) => showError(e.message));

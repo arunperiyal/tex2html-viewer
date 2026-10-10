@@ -1,22 +1,33 @@
-// Decks in the Origin Private File System:
+// Decks in the browser's Origin Private File System, read straight from
+// their zip:
 //
-//   decks/<folder>/meta.json      written last: a folder without it is an
-//   decks/<folder>/slides.html    unfinished import and is removed
-//   decks/<folder>/html/...
+//   decks/<folder>/pack.zip     the pack, copied as one file
+//   decks/<folder>/index.json   where each file is in it: {root, entries:
+//                               {path: [header offset, method, compressed
+//                               size, size]}}
+//   decks/<folder>/meta.json    written last: a folder without it is an
+//                               unfinished import and is removed
+//
+// The service worker (src/sw.js) serves decks/<folder>/<path> from the zip,
+// so nothing is unpacked: an import is one sequential copy. Decks imported
+// before this (unpacked into the folder) are still served as they are.
 //
 // <folder> is the deck's name plus a timestamp, so a re-import writes a new
-// folder and the old one is removed only when the new one is complete. The
-// service worker (public/sw.js) serves decks/<folder>/<path> from here.
+// folder and the old one is removed only when the new one is complete.
+//
+// In the Android app, decks are kept natively instead (android/.../DeckStore.kt)
+// and come in through window.TexViewer; this module then only lists, opens and
+// deletes the decks the app imported into browser storage before.
 
 import { entryStream, readEntries, safePath, ZipError, type ZipEntry } from "./zip";
 
 export interface Deck {
-  folder: string;
+  folder: string;        // decks/<folder>, or the app's deck id
   name: string;          // from the pack's folder (or the zip's name)
   title: string;         // the deck's <title>
   bytes: number;
-  files: number;
   importedAt: number;
+  app?: boolean;         // kept by the Android app (served under native/)
 }
 
 export interface Progress {
@@ -50,9 +61,9 @@ export async function deleteDeck(folder: string): Promise<void> {
   await (await decksDir()).removeEntry(folder, { recursive: true });
 }
 
-/** URL of the deck's page, served by the service worker. */
+/** URL of the deck's page: served by the service worker, or by the app. */
 export function deckUrl(d: Deck): string {
-  return `${import.meta.env.BASE_URL}decks/${encodeURIComponent(d.folder)}/slides.html`;
+  return `${import.meta.env.BASE_URL}${d.app ? "native" : "decks"}/${encodeURIComponent(d.folder)}/slides.html`;
 }
 
 /** The pack's deck: the folder holding slides.html (the shallowest one). */
@@ -69,16 +80,10 @@ function slug(s: string): string {
   return s.replace(/\.zip$/i, "").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "deck";
 }
 
-async function writeFile(dir: FileSystemDirectoryHandle, path: string,
-                         data: ReadableStream<Uint8Array>, onChunk: (n: number) => void) {
-  const parts = path.split("/");
-  for (const p of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(p, { create: true });
-  const fh = await dir.getFileHandle(parts[parts.length - 1], { create: true });
-  const w = await fh.createWritable();
-  const counted = data.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, ctl) { onChunk(chunk.byteLength); ctl.enqueue(chunk); },
-  }));
-  await counted.pipeTo(w);                                // closes the file
+async function writeText(dir: FileSystemDirectoryHandle, name: string, text: string) {
+  const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
+  await w.write(text);
+  await w.close();
 }
 
 /** Import a --pack zip. Replaces a deck of the same name once complete. */
@@ -86,16 +91,20 @@ export async function importZip(file: File, onProgress: (p: Progress) => void,
                                 signal?: AbortSignal): Promise<Deck> {
   const entries = await readEntries(file);
   const root = findRoot(entries);
-  const files: { entry: ZipEntry; path: string }[] = [];
+  const index: Record<string, [number, number, number, number]> = {};
   for (const e of entries) {
     if (e.isDir || !e.path.startsWith(root)) continue;
     const path = safePath(e.path.slice(root.length));
     if (!path || e.isSymlink) throw new ZipError(`unsafe entry in the zip: ${e.path}`);
     if (e.encrypted) throw new ZipError("encrypted zips are not supported");
-    files.push({ entry: e, path });
+    index[path] = [e.headerOffset, e.method, e.compressedSize, e.size];
   }
-  const total = files.reduce((n, f) => n + f.entry.size, 0);
+  const page = entries.find((e) => e.path === `${root}slides.html`)!;
+  const html = await new Response(await entryStream(file, page)).text();
+  const name = slug(root.replace(/\/$/, "") || file.name);
+  const title = decodeEntities(/<title>([^<]*)<\/title>/i.exec(html)?.[1]?.trim() || name);
 
+  const total = file.size;
   const est = await navigator.storage.estimate();
   if (est.quota !== undefined && est.usage !== undefined && est.quota - est.usage < total * 1.05) {
     throw new ZipError(`not enough storage: the deck needs ${mb(total)}, ` +
@@ -103,32 +112,30 @@ export async function importZip(file: File, onProgress: (p: Progress) => void,
   }
   await navigator.storage.persist?.().catch(() => false);   // keep big decks from eviction
 
-  const name = slug(root.replace(/\/$/, "") || file.name);
   const folder = `${name}-${Date.now()}`;
   const decks = await decksDir();
   const dir = await decks.getDirectoryHandle(folder, { create: true });
-  let done = 0;
   try {
-    for (const f of files) {
-      if (signal?.aborted) throw new DOMException("import cancelled", "AbortError");
-      await writeFile(dir, f.path, await entryStream(file, f.entry), (n) => {
-        done += n;
+    // the zip as it is, in one go
+    const w = await (await dir.getFileHandle("pack.zip", { create: true })).createWritable();
+    let done = 0;
+    await file.stream().pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, ctl) {
+        done += chunk.byteLength;
         onProgress({ done, total });
-      });
-    }
-    const page = await (await dir.getFileHandle("slides.html")).getFile();
-    const title = /<title>([^<]*)<\/title>/i.exec(await page.text())?.[1]?.trim() || name;
-    const deck: Deck = { folder, name, title: decodeEntities(title), bytes: total,
-                         files: files.length, importedAt: Date.now() };
-    const w = await (await dir.getFileHandle(META, { create: true })).createWritable();
-    await w.write(JSON.stringify(deck));
-    await w.close();
+        ctl.enqueue(chunk);
+      },
+    })).pipeTo(w, { signal });
+    await writeText(dir, "index.json", JSON.stringify({ root, entries: index }));
+    const deck: Deck = { folder, name, title, bytes: total, importedAt: Date.now() };
+    await writeText(dir, META, JSON.stringify(deck));
     for (const old of await listDecks()) {                  // the replaced deck
       if (old.name === name && old.folder !== folder) await deleteDeck(old.folder);
     }
     return deck;
   } catch (err) {
     await decks.removeEntry(folder, { recursive: true }).catch(() => {});
+    if (signal?.aborted) throw new DOMException("import cancelled", "AbortError");
     throw err;
   }
 }

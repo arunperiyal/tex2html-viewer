@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Viewer" parent="android:Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowBackground">@color/background</item>
+    </style>
+    <color name="background">#f6f7f9</color>
+    <color name="brand">#1f497d</color>
+</resources>

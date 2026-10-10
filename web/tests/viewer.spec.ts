@@ -143,3 +143,38 @@ test("the back button closes the deck only on a second press", async ({ page }) 
   await page.evaluate(() => history.back());
   await expect(page.locator("#library")).toBeVisible();
 });
+
+// ---------------------------------------------------------------- read from the zip
+
+test("an imported deck is kept as its zip, not unpacked", async ({ page }) => {
+  await importPack(page, PACK);
+  await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(28);
+  const files = await page.evaluate(async () => {
+    const decks = await (await navigator.storage.getDirectory()).getDirectoryHandle("decks");
+    for await (const [, h] of decks as unknown as AsyncIterable<[string, FileSystemDirectoryHandle]>) {
+      const names: string[] = [];
+      for await (const [n] of h as unknown as AsyncIterable<[string, FileSystemHandle]>) names.push(n);
+      return names.sort();
+    }
+  });
+  expect(files).toEqual(["index.json", "meta.json", "pack.zip"]);
+});
+
+test("a deck unpacked by an earlier version still opens", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.evaluate(async () => {
+    const decks = await (await navigator.storage.getDirectory()).getDirectoryHandle("decks", { create: true });
+    const dir = await decks.getDirectoryHandle("old-1", { create: true });
+    const put = async (name: string, text: string) => {
+      const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
+      await w.write(text);
+      await w.close();
+    };
+    await put("slides.html", "<!doctype html><title>Old deck</title><section class='slide'>an old slide</section>");
+    await put("meta.json", JSON.stringify({ folder: "old-1", name: "old", title: "Old deck", bytes: 100, importedAt: 1 }));
+  });
+  await page.reload();
+  await page.locator(".deck-open", { hasText: "Old deck" }).click();
+  await expect(page.frameLocator("#frame").locator("section.slide")).toHaveText("an old slide");
+});
