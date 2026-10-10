@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
         }
         web.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
-                loader.shouldInterceptRequest(request.url)
+                serveDeck(request) ?: loader.shouldInterceptRequest(request.url)
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 if (request.url.host == DOMAIN) return false
@@ -119,7 +119,7 @@ class MainActivity : ComponentActivity() {
         // the page's service worker fetches the app's files too (sw.js, the cache)
         ServiceWorkerController.getInstance().setServiceWorkerClient(object : ServiceWorkerClient() {
             override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? =
-                loader.shouldInterceptRequest(request.url)
+                serveDeck(request) ?: loader.shouldInterceptRequest(request.url)
         })
         web.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>,
@@ -260,16 +260,22 @@ class MainActivity : ComponentActivity() {
 
     // ------------------------------------------------------------ files
 
-    /** The bundled web app (assets/web/), and the decks (native/<id>/<path>). */
+    /** A deck's file (https://<DOMAIN>/native/<id>/<path>), with the request's
+     *  Range header (a video seeking); null for anything else. */
+    private fun serveDeck(request: WebResourceRequest): WebResourceResponse? {
+        val url = request.url
+        if (url.host != DOMAIN || url.path?.startsWith("/native/") != true) return null
+        val rest = url.encodedPath!!.removePrefix("/native/")
+        val id = Uri.decode(rest.substringBefore('/'))
+        val file = Uri.decode(rest.substringAfter('/', ""))
+        if (file.isEmpty() || file.split('/').any { it == ".." }) return notFound()
+        val range = request.requestHeaders.entries.firstOrNull { it.key.equals("Range", true) }?.value
+        return try { decks.serve(id, file, range) } catch (_: Exception) { null } ?: notFound()
+    }
+
+    /** The bundled web app (assets/web/). */
     private inner class AppHandler : WebViewAssetLoader.PathHandler {
         override fun handle(path: String): WebResourceResponse? {
-            if (path.startsWith("native/")) {
-                val rest = path.removePrefix("native/")
-                val id = Uri.decode(rest.substringBefore('/'))
-                val file = Uri.decode(rest.substringAfter('/', ""))
-                if (file.isEmpty() || file.split('/').any { it == ".." }) return null
-                return try { decks.serve(id, file) } catch (_: Exception) { null }
-            }
             val file = path.ifEmpty { "index.html" }
             return try {
                 WebResourceResponse(mimeType(file), if (isText(file)) "utf-8" else null,
@@ -282,12 +288,17 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val DOMAIN = "appassets.androidplatform.net"
+        fun notFound() = WebResourceResponse("text/plain", "utf-8", 404, "Not Found",
+                                             emptyMap(), "".byteInputStream())
 
         private val TYPES = mapOf(
             "html" to "text/html", "css" to "text/css", "js" to "text/javascript",
             "json" to "application/json", "webmanifest" to "application/manifest+json",
             "svg" to "image/svg+xml", "png" to "image/png", "jpg" to "image/jpeg",
+            "jpeg" to "image/jpeg", "gif" to "image/gif", "webp" to "image/webp",
             "woff" to "font/woff", "woff2" to "font/woff2",
+            "mp4" to "video/mp4", "m4v" to "video/mp4", "webm" to "video/webm",
+            "mov" to "video/quicktime", "ogv" to "video/ogg",
         )
 
         fun mimeType(path: String) = TYPES[path.substringAfterLast('.').lowercase()] ?: "application/octet-stream"
