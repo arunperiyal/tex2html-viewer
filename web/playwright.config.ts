@@ -5,8 +5,9 @@ export default defineConfig({
   timeout: 60_000,
   use: { baseURL: "http://localhost:5179", channel: "chrome", headless: true },
   webServer: {
-    command: "npx vite --port 5179 --strictPort",
+    // the production build: offline caching exists only there
+    command: "npm run build && npx vite preview --port 5179 --strictPort",
     url: "http://localhost:5179",
-    reuseExistingServer: true,
+    reuseExistingServer: false,
   },
 });

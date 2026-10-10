@@ -18,9 +18,11 @@ h2 { font-size: 1.05rem; margin: 28px 0 10px; color: var(--muted); font-weight: 
 .lead { margin: 0; color: var(--muted); }
 code { font-size: 0.92em; }
 
-.drop { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 20px;
+.add { display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
+.drop { flex: 1 1 220px; display: flex; flex-direction: column; align-items: center; gap: 4px;
         padding: 28px 16px; border: 2px dashed var(--line); border-radius: 12px; cursor: pointer;
-        background: var(--card); text-align: center; }
+        background: var(--card); text-align: center; font: inherit; color: inherit; }
+.drop.folder { border-style: solid; }
 .drop:hover, .drop.over { border-color: var(--accent); }
 .drop-title { font-weight: 600; color: var(--accent); font-size: 1.1rem; }
 .drop-hint { color: var(--muted); font-size: 0.9rem; }
@@ -28,7 +30,9 @@ code { font-size: 0.92em; }
 #progress { margin-top: 16px; }
 .progress-row { display: flex; justify-content: space-between; gap: 12px; font-size: 0.9rem; }
 progress { width: 100%; height: 8px; margin-top: 6px; accent-color: var(--accent); }
-.error { color: var(--error); margin-top: 16px; }
+.error { color: var(--error); margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center;
+         gap: 4px 10px; }
+.storage { margin-top: 36px; color: var(--muted); font-size: 0.82rem; line-height: 1.4; }
 .empty { color: var(--muted); }
 
 button { font: inherit; color: inherit; }
@@ -43,12 +47,17 @@ button { font: inherit; color: inherit; }
 .deck-info { color: var(--muted); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis;
              white-space: nowrap; max-width: 100%; }
 
-/* the deck fills the window; the small bar shows only on hover / focus */
+/* the deck fills the window, with nothing over it (a shared screen shows only
+   the slides); the bar appears on Esc, a tap in the top-left corner, or the
+   mouse near it, and hides again after a few seconds */
 #viewer { position: fixed; inset: 0; background: #000; }
 #frame { width: 100%; height: 100%; border: 0; display: block; }
-.viewer-bar { position: absolute; top: 8px; left: 8px; display: flex; gap: 6px; opacity: 0;
-              transition: opacity 0.2s; }
-#viewer:hover .viewer-bar, .viewer-bar:focus-within { opacity: 1; }
-.viewer-bar button { width: 36px; height: 36px; border-radius: 18px; border: none; cursor: pointer;
-                     background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 16px; }
-@media (hover: none) { .viewer-bar { opacity: 0.35; } }
+.corner { position: absolute; top: 0; left: 0; width: 56px; height: 56px; }
+.viewer-bar { position: absolute; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
+              display: flex; gap: 6px; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+.viewer-bar.show, .viewer-bar:focus-within { opacity: 1; pointer-events: auto; }
+.viewer-bar button { width: 40px; height: 40px; border-radius: 20px; border: none; cursor: pointer;
+                     background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 17px; }
+.toast { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 10;
+         background: rgba(0, 0, 0, 0.8); color: #fff; padding: 10px 16px; border-radius: 20px;
+         font-size: 0.95rem; }
