@@ -86,21 +86,29 @@ tex2html-viewer/
 
 ### Storage, per platform
 
-- **Web:** the zip is read in the browser by random access (stored entries,
-  the bulk of a pack, are copied as they are; deflated ones go through
-  `DecompressionStream`), files go to the Origin Private File System, and a
-  **service worker** answers requests for `/decks/<id>/…` from it. The app itself is cached by the service worker, so it
-  starts offline after the first visit. It asks for persistent storage, so the
+A deck is kept as its zip and read from it: a pack's index (the zip's central
+directory) says where each file is, and its images are stored uncompressed,
+so a requested file is read straight out of the zip. Nothing is unpacked: an
+import is one sequential copy, and a deck takes its zip's size once. (The
+first version unpacked about 1,500 files per deck; a 700 MB talk took 15
+minutes to import in the Android app. Read from the zip, it takes seconds.)
+
+- **Web:** the zip is copied into the Origin Private File System as one file
+  (`decks/<folder>/pack.zip`, plus `index.json`: where each file is), and a
+  **service worker** answers requests for `decks/<folder>/…` by reading the
+  entry from the zip (stored entries as they are, deflated ones through
+  `DecompressionStream`). Decks unpacked by the first version are still
+  served. The app itself is cached by the service worker, so it starts
+  offline after the first visit. It asks for persistent storage, so the
   browser does not clear large decks.
 - **Android:** a WebView shows the same web app, bundled in the APK and served
   with `WebViewAssetLoader` under `https://appassets.androidplatform.net/`.
-  Decks are stored by the web app itself (file storage and service worker work
-  in the WebView, tested in M2), so there is one code path; in the app they are
-  app data, not subject to a browser's clean-up. Native storage stays an
-  option if M3 shows the WebView's storage is too slow or too small for very
-  large decks. Zips picked in the system picker, opened with the app or shared
-  to it are served to the page (`incoming/<token>`), which fetches and imports
-  them — faster than reading a picked file in slices.
+  Decks are kept natively (`DeckStore`): the zip is copied into the app's
+  files once and served under `native/<id>/…` with `ZipFile`, so deck bytes
+  never pass through the page (handing a 700 MB zip to the page took
+  minutes, or failed). The page lists, opens and deletes decks through the
+  bridge and shows the import's progress. Zips picked in the system picker,
+  opened with the app or shared to it are imported the same way.
 
 ### Import
 
@@ -111,10 +119,11 @@ mostly a copy (a pack's images are stored uncompressed).
   and the share menu (`application/zip`).
 - Find the deck in the zip: one folder with `slides.html` (what `--pack`
   writes), or `slides.html` at the root.
-- Stream with progress and cancel; check free space first; reject unsafe
-  entries (absolute paths, `..`, symlinks); unpack to a temporary place and
-  swap it in at the end, so a failed import never leaves half a deck.
-- Re-importing a deck with the same name offers to replace it.
+- Copy with progress and cancel; check free space first; reject unsafe
+  entries (absolute paths, `..`, symlinks); the deck is recorded only once the
+  copy is complete, so a failed or cancelled import never leaves half a deck.
+- Re-importing a deck with the same name replaces it once the new copy is
+  complete (its saved position is kept).
 
 ### Library screen
 
@@ -204,8 +213,10 @@ Each milestone ends with something usable.
    internet permission. Debug APK built by GitHub Actions. In tex2html:
    `slides.html?nopresenter` hides the presenter view, which cannot open in
    the app.
-4. **M3 – large decks and release.** Performance with the 680 MB talk on both
-   platforms (import speed and storage limits in the WebView), signed APK.
+4. **M3 – large decks and release.** Large decks: *done* (read from the zip;
+   a 700 MB pack imports in about 2 s on the emulator and in desktop Chrome,
+   frames are served in a few milliseconds) — to confirm on a real phone.
+   Signed release APK.
 
 ## Later
 

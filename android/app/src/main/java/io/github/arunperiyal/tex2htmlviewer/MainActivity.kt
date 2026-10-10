@@ -31,16 +31,17 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.webkit.WebViewAssetLoader
 import org.json.JSONObject
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 
 /**
  * The viewer's screens are the web app, bundled in the APK (assets/web/) and
- * served under https://appassets.androidplatform.net/; decks are imported and
- * stored by the web app itself (browser file storage + service worker), as on
- * the web. This activity adds what only an app can do: the system file picker,
- * "Open with" and the share menu, immersive full screen in landscape with the
- * screen kept on, Back through the deck's guard, and the volume keys.
+ * served under https://appassets.androidplatform.net/. Decks are kept
+ * natively (DeckStore: the zip, copied once, read from on request) and served
+ * under native/<id>/; the page shows the library and progress through the
+ * bridge (window.TexViewer) and gets events on window.t2hvApp. This activity
+ * also adds the system file picker, "Open with" and the share menu, immersive
+ * full screen in landscape with the screen kept on, Back through the deck's
+ * guard, and the volume keys.
  */
 class MainActivity : ComponentActivity() {
 
@@ -51,14 +52,13 @@ class MainActivity : ComponentActivity() {
     private var pageReady = false
     private var viewerOpen = false
     private var immersive = false
-    private var pendingImport: Pair<String, String>? = null      // url, file name
+    private var pendingImport: Uri? = null
 
-    /** zips opened with the app, served to the page under incoming/<token> */
-    private val incoming = ConcurrentHashMap<String, Uri>()
+    private lateinit var decks: DeckStore
+    private val importer = Executors.newSingleThreadExecutor()
 
-    // "Open a pack": the system picker; the zip then goes the same way as one
-    // opened with the app (served to the page, which fetches it: much faster
-    // than the page reading the picked file in slices)
+    // "Open a pack": the system picker, then the same native import as a zip
+    // opened with the app or shared to it
     private val pickZip = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { importUri(it) }
     }
@@ -66,6 +66,7 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        decks = DeckStore(this)
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             WebView.setWebContentsDebuggingEnabled(true)
         }
@@ -111,7 +112,7 @@ class MainActivity : ComponentActivity() {
 
             override fun onPageFinished(view: WebView, url: String) {
                 pageReady = true
-                pendingImport?.let { (u, n) -> startImport(u, n) }
+                pendingImport?.let { importUri(it) }
                 pendingImport = null
             }
         }
@@ -159,7 +160,7 @@ class MainActivity : ComponentActivity() {
         web.saveState(outState)
     }
 
-    /** "Open with" or share: hand the zip to the page, which imports it. */
+    /** "Open with" or share: import the zip. */
     private fun handleIntent(intent: Intent?) {
         val uri = when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data
@@ -170,18 +171,30 @@ class MainActivity : ComponentActivity() {
         setIntent(Intent())                       // not again after a rotation
     }
 
+    /** Import natively, telling the page (window.t2hvApp) how it goes. */
     private fun importUri(uri: Uri) {
-        val token = UUID.randomUUID().toString()
-        incoming[token] = uri
-        val url = "https://$DOMAIN/incoming/$token"
+        if (!pageReady) { pendingImport = uri; return }
         val name = displayName(uri) ?: "deck.zip"
-        if (pageReady) startImport(url, name) else pendingImport = url to name
+        toPage("importStarted", name)
+        importer.execute {
+            try {
+                val deck = decks.import(uri, name) { done, total -> toPage("importProgress", done, total) }
+                toPage("importDone", deck)
+            } catch (e: Exception) {
+                toPage("importFailed", e.message ?: e.javaClass.simpleName)
+            }
+        }
     }
 
-    private fun startImport(url: String, name: String) {
-        web.evaluateJavascript(
-            "window.t2hvImportUrl && window.t2hvImportUrl(${JSONObject.quote(url)}, ${JSONObject.quote(name)})",
-            null)
+    /** Call window.t2hvApp.<event>(...args) in the page. */
+    private fun toPage(event: String, vararg args: Any) {
+        val js = args.joinToString(", ") { a ->
+            when (a) {
+                is String -> JSONObject.quote(a)
+                else -> a.toString()                  // numbers, JSONObject
+            }
+        }
+        runOnUiThread { web.evaluateJavascript("window.t2hvApp && window.t2hvApp.$event($js)", null) }
     }
 
     private fun displayName(uri: Uri): String? = try {
@@ -239,20 +252,22 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun viewerOpened() = runOnUiThread { setViewer(true) }
         @JavascriptInterface fun viewerClosed() = runOnUiThread { setViewer(false) }
         @JavascriptInterface fun toggleFullscreen() = runOnUiThread { hideBars(!immersive) }
+        @JavascriptInterface fun listDecks(): String = decks.list().toString()
+        @JavascriptInterface fun deleteDeck(id: String) = decks.delete(id)
+        @JavascriptInterface fun cancelImport() { decks.cancelled = true }
     }
 
     // ------------------------------------------------------------ files
 
-    /** The bundled web app (assets/web/), and zips opened with the app. */
+    /** The bundled web app (assets/web/), and the decks (native/<id>/<path>). */
     private inner class AppHandler : WebViewAssetLoader.PathHandler {
         override fun handle(path: String): WebResourceResponse? {
-            if (path.startsWith("incoming/")) {
-                val uri = incoming.remove(path.removePrefix("incoming/")) ?: return null   // fetched once
-                return try {
-                    WebResourceResponse("application/zip", null, contentResolver.openInputStream(uri))
-                } catch (e: Exception) {
-                    null
-                }
+            if (path.startsWith("native/")) {
+                val rest = path.removePrefix("native/")
+                val id = Uri.decode(rest.substringBefore('/'))
+                val file = Uri.decode(rest.substringAfter('/', ""))
+                if (file.isEmpty() || file.split('/').any { it == ".." }) return null
+                return try { decks.serve(id, file) } catch (_: Exception) { null }
             }
             val file = path.ifEmpty { "index.html" }
             return try {

@@ -1,8 +1,10 @@
 // The viewer's service worker. Built by vite.config.ts, which fills in the
 // list of files to cache and the version.
 //
-//   <scope>decks/<folder>/<path>  imported decks, from the Origin Private File
-//                                 System (decks/<folder>/<path>)
+//   <scope>decks/<folder>/<path>  imported decks, read from their zip in the
+//                                 Origin Private File System (decks/<folder>/
+//                                 pack.zip + index.json; older decks unpacked)
+//   <scope>native/<id>/<path>     decks kept by the Android app: left to it
 //   everything else in scope      the app itself: cached at install, so it
 //                                 starts offline after the first visit
 //
@@ -46,6 +48,7 @@ self.addEventListener("fetch", (e) => {
   const scope = new URL(self.registration.scope);
   if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return;
   const rel = url.pathname.slice(scope.pathname.length);
+  if (rel.startsWith("native/")) return;           // the Android app serves these
   if (rel.startsWith("decks/")) e.respondWith(serveDeck(rel.slice(6)));
   else if (!DEV && e.request.method === "GET") e.respondWith(serveApp(e.request));
 });
@@ -86,11 +89,52 @@ async function fileResponse(dir, parts) {
   });
 }
 
+// open packs: folder -> { file, entries, starts }, read once per worker
+const packs = new Map();
+
+async function openPack(dir, folder) {
+  if (packs.has(folder)) return packs.get(folder);
+  let pack = null;
+  try {
+    const index = JSON.parse(await (await (await dir.getFileHandle("index.json")).getFile()).text());
+    const file = await (await dir.getFileHandle("pack.zip")).getFile();
+    pack = { file, entries: index.entries, starts: new Map() };
+  } catch { /* an older deck, unpacked */ }
+  packs.set(folder, pack);
+  return pack;
+}
+
+/** A file of a deck, read from its zip: the index gives the entry's local
+ * header; the data follows it (stored as is, or deflated). */
+async function servePacked(pack, path) {
+  const e = pack.entries[path];
+  if (!e) return notFound();
+  const [header, method, compressedSize] = e;
+  let start = pack.starts.get(path);
+  if (start === undefined) {
+    const h = new DataView(await pack.file.slice(header, header + 30).arrayBuffer());
+    start = header + 30 + h.getUint16(26, true) + h.getUint16(28, true);
+    pack.starts.set(path, start);
+  }
+  const data = pack.file.slice(start, start + compressedSize);
+  let body;
+  if (method === 0) body = data;
+  else if (method === 8) body = data.stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  else return notFound();
+  const ext = path.split(".").pop().toLowerCase();
+  return new Response(body, {
+    headers: { "Content-Type": TYPES[ext] || "application/octet-stream", "Cache-Control": "no-cache" },
+  });
+}
+
 async function serveDeck(rel) {
   try {
     const parts = pathParts(rel);
-    if (!parts) return notFound();
+    if (!parts || parts.length < 2) return notFound();
     const decks = await (await navigator.storage.getDirectory()).getDirectoryHandle("decks");
+    const dir = await decks.getDirectoryHandle(parts[0]);
+    const pack = await openPack(dir, parts[0]);
+    if (pack) return await servePacked(pack, parts.slice(1).join("/"));
     return await fileResponse(decks, parts);
   } catch {
     return notFound();

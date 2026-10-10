@@ -20,7 +20,10 @@ const touch = matchMedia("(pointer: coarse)").matches;
 
 /** Inside the Android app: it provides full screen, landscape and keeping the
  * screen on natively (android/.../MainActivity.kt). */
-interface AppBridge { viewerOpened(): void; viewerClosed(): void; toggleFullscreen(): void }
+interface AppBridge {
+  viewerOpened(): void; viewerClosed(): void; toggleFullscreen(): void;
+  listDecks(): string; deleteDeck(id: string): void; cancelImport(): void;   // decks kept by the app
+}
 const app = (window as unknown as { TexViewer?: AppBridge }).TexViewer;
 let importing: AbortController | null = null;
 
@@ -45,8 +48,17 @@ function showError(msg: string) {
   errorBox.hidden = !msg;
 }
 
+/** The decks the app keeps (natively, read from their zip). */
+function appDecks(): Deck[] {
+  if (!app) return [];
+  const list = JSON.parse(app.listDecks()) as { id: string; name: string; title: string; bytes: number; importedAt: number }[];
+  return list.map((d) => ({ folder: d.id, name: d.name, title: d.title, bytes: d.bytes,
+                            importedAt: d.importedAt, app: true }));
+}
+
 async function render() {
-  const decks = await listDecks();
+  // in the app: its own decks, and any it imported into browser storage before
+  const decks = [...appDecks(), ...await listDecks()].sort((a, b) => b.importedAt - a.importedAt);
   list.replaceChildren(...decks.map(deckItem));
   empty.hidden = decks.length > 0;
   renderStorage();
@@ -67,7 +79,8 @@ function deckItem(d: Deck): HTMLLIElement {
   remove.title = "Delete this deck from the device";
   remove.addEventListener("click", async () => {
     if (!confirm(`Delete "${d.title}" from this device?`)) return;
-    await deleteDeck(d.folder);
+    if (d.app) app?.deleteDeck(d.folder);
+    else await deleteDeck(d.folder);
     render();
   });
   li.append(open, remove);
@@ -308,7 +321,10 @@ fileInput.addEventListener("change", () => {
   const f = fileInput.files?.[0];
   if (f) importFile(f);
 });
-$("cancel").addEventListener("click", () => importing?.abort());
+$("cancel").addEventListener("click", () => {
+  importing?.abort();
+  if (app && appImporting) app.cancelImport();
+});
 drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
 drop.addEventListener("dragleave", () => drop.classList.remove("over"));
 drop.addEventListener("drop", (e) => {
@@ -317,15 +333,34 @@ drop.addEventListener("drop", (e) => {
   const f = e.dataTransfer?.files?.[0];
   if (f) importFile(f);
 });
-// the Android app hands over zips opened with it ("Open with", share menu)
-(window as unknown as { t2hvImportUrl: (url: string, name: string) => Promise<void> }).t2hvImportUrl =
-  async (url, name) => {
-    try {
-      const blob = await (await fetch(url)).blob();
-      await importFile(new File([blob], name, { type: "application/zip" }));
-    } catch (e) {
-      showError(`Could not open ${name}: ${(e as Error).message}`);
-    }
-  };
+// the Android app imports zips itself (picker, "Open with", share menu) and
+// tells the page how it goes
+let appImporting = "";
+(window as unknown as { t2hvApp: object }).t2hvApp = {
+  importStarted(name: string) {
+    showError("");
+    appImporting = name;
+    progress.hidden = false;
+    progressBar.removeAttribute("value");                 // size not known yet
+    progressText.textContent = `Importing ${name}…`;
+  },
+  importProgress(done: number, total: number) {
+    progressBar.value = total > 0 ? done / total : 0;
+    progressText.textContent = `Importing ${appImporting}: ${mb(done)}${total > 0 ? ` of ${mb(total)}` : ""}`;
+  },
+  async importDone(deck: { id: string; name: string; title: string; bytes: number; importedAt: number }) {
+    appImporting = "";
+    progress.hidden = true;
+    await render();
+    openDeck({ folder: deck.id, name: deck.name, title: deck.title, bytes: deck.bytes,
+               importedAt: deck.importedAt, app: true });
+  },
+  importFailed(message: string) {
+    const name = appImporting;
+    appImporting = "";
+    progress.hidden = true;
+    showError(message === "cancelled" ? "Import cancelled." : `Could not import ${name}: ${message}`);
+  },
+};
 
 ready.then(render).catch((e: Error) => showError(e.message));
