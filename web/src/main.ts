@@ -133,6 +133,8 @@ let positionTimer = 0;
 let barTimer = 0;
 let backArmed = false;
 let ignorePop = false;
+let notesOn = false;
+let notesWarned = false;
 
 const positionKey = (d: Deck) => `t2hv:pos:imported:${d.name}`;
 
@@ -155,6 +157,7 @@ function savedPosition(d: Deck): string {
 function openDeck(d: Deck) {
   showError("");
   current = d;
+  setNotes(false);                          // never start a talk with notes showing
   // in the app no second window can open: tell deck.js to leave out S
   frame.src = deckUrl(d) + (app ? "?nopresenter" : "") + savedPosition(d);
   library.hidden = true;
@@ -250,6 +253,7 @@ addEventListener("visibilitychange", () => {
 });
 addEventListener("pagehide", savePosition);
 
+let barTappedAt = -Infinity;  // when a tap on the corner showed the bar
 function showBar() {
   bar.classList.add("show");
   clearTimeout(barTimer);
@@ -280,6 +284,7 @@ function viewerKey(e: KeyboardEvent): boolean {
   if (e.ctrlKey || e.metaKey || e.altKey) return false;
   if (e.key === "Escape") toggleBar();
   else if (e.key === "f" || e.key === "F") toggleFullscreen();
+  else if (e.key === "n" || e.key === "N") setNotes(!notesOn);
   else return false;
   e.preventDefault();
   e.stopImmediatePropagation();
@@ -289,6 +294,7 @@ function viewerKey(e: KeyboardEvent): boolean {
 frame.addEventListener("load", () => {
   if (!current) return;
   focusDeck();
+  watchSlides();
   try {                                     // same origin: listen inside the deck
     frame.contentWindow?.addEventListener("keydown", viewerKey, { capture: true });
   } catch { /* nothing to listen to */ }
@@ -308,12 +314,87 @@ addEventListener("keydown", (e) => {
 document.addEventListener("fullscreenchange", () => {
   if (current && !document.fullscreenElement) showBar();
 });
-viewer.addEventListener("mousemove", (e) => {
-  if (e.clientX < 160 && e.clientY < 120) showBar();
+// a real mouse near the top-left corner shows the bar (not the mouse events
+// a touch also sends: they would show it and then click ✕ under the finger)
+viewer.addEventListener("pointermove", (e) => {
+  if (e.pointerType === "mouse" && e.clientX < 160 && e.clientY < 120) showBar();
 });
-$("corner").addEventListener("click", showBar);
-$("close").addEventListener("click", closeFromUi);
-$("fullscreen").addEventListener("click", toggleFullscreen);
+$("corner").addEventListener("pointerdown", () => {
+  if (!bar.classList.contains("show")) barTappedAt = performance.now();
+  showBar();
+});
+/** A bar button: ignores the click that comes with the tap showing the bar. */
+function barButton(id: string, action: () => void) {
+  $(id).addEventListener("click", () => {
+    if (performance.now() - barTappedAt < 400) return;
+    action();
+  });
+}
+barButton("close", closeFromUi);
+barButton("fullscreen", toggleFullscreen);
+barButton("notes", () => { setNotes(!notesOn); focusDeck(); });
+
+// ---------------------------------------------------------------- notes
+// The current slide's speaker notes (\note{...}: <aside class="note">) in a
+// panel at the bottom of the deck, shown with the Notes button or N. It is
+// drawn inside the deck's page, so maths in notes uses the deck's own styles.
+// Anyone who sees this screen sees the notes too (mirroring, casting).
+
+const NOTES_CSS = "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;max-height:38vh;" +
+  "overflow:auto;box-sizing:border-box;padding:10px 18px 14px;background:rgba(16,20,26,0.92);" +
+  "color:#f2f4f7;font:400 clamp(14px,1.9vw,22px)/1.45 system-ui,sans-serif;" +
+  "border-top:2px solid rgba(138,180,248,0.8)";
+
+function setNotes(on: boolean) {
+  notesOn = on;
+  $("notes").setAttribute("aria-pressed", String(on));
+  renderNotes();
+  if (on && !notesWarned) {
+    notesWarned = true;
+    showToast("Notes are visible to anyone who sees this screen");
+  }
+}
+
+function renderNotes() {
+  const doc = frame.contentDocument;
+  if (!doc?.body || !current) return;
+  let panel = doc.getElementById("t2hv-notes");
+  if (!notesOn) {
+    panel?.remove();
+    return;
+  }
+  if (!panel) {
+    panel = doc.createElement("div");
+    panel.id = "t2hv-notes";
+    panel.setAttribute("style", NOTES_CSS);
+    // touches on the panel scroll it: keep them from deck.js's tap / swipe
+    for (const t of ["pointerdown", "pointerup", "pointercancel", "click"]) {
+      panel.addEventListener(t, (e) => e.stopPropagation());
+    }
+    doc.body.appendChild(panel);
+  }
+  const slides = [...doc.querySelectorAll("section.slide")];
+  const index = slides.findIndex((s) => s.classList.contains("active"));
+  const notes = [...(slides[index]?.querySelectorAll("aside.note") ?? [])];
+  const plain = notes.filter((n) => !n.hasAttribute("data-item"));
+  const items = notes.filter((n) => n.hasAttribute("data-item"));
+  const head = `<div style="font-size:0.72em;opacity:0.65;letter-spacing:0.04em;margin-bottom:4px">` +
+    `NOTES · SLIDE ${index + 1} / ${slides.length}</div>`;
+  panel.innerHTML = head + (notes.length
+    ? plain.map((n) => `<div>${n.innerHTML}</div>`).join("") +
+      (items.length ? `<ul style="margin:0.3em 0;padding-left:1.2em">${items.map((n) => `<li>${n.innerHTML}</li>`).join("")}</ul>` : "")
+    : `<div style="opacity:0.6;font-style:italic">No notes for this slide.</div>`);
+}
+
+/** Follow slide changes (deck.js moves the "active" class). */
+function watchSlides() {
+  const doc = frame.contentDocument;
+  if (!doc?.body) return;
+  new MutationObserver(() => { if (notesOn) renderNotes(); })
+    .observe(doc.querySelector(".deck") ?? doc.body,
+             { subtree: true, attributes: true, attributeFilter: ["class"] });
+  renderNotes();
+}
 
 // ================================================================ setup
 

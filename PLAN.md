@@ -142,6 +142,12 @@ mostly a copy (a pack's images are stored uncompressed).
 - Android back button: a second press closes the deck, so a stray press does
   not end a talk.
 - Resume: reopen a deck at the last slide and step.
+- Speaker notes on a toggle: the Notes button in the bar (or N) shows the
+  current slide's notes (`\note{...}`) in a panel at the bottom, following the
+  slides. Off whenever a deck opens; anyone who sees the screen sees them
+  (mirroring, casting), which the viewer says the first time. A presenter view
+  with a second screen (slides on a projector, notes on the phone) is under
+  Later.
 
 ### Working with tex2html
 

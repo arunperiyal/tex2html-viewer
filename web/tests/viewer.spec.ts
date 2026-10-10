@@ -178,3 +178,73 @@ test("a deck unpacked by an earlier version still opens", async ({ page }) => {
   await page.locator(".deck-open", { hasText: "Old deck" }).click();
   await expect(page.frameLocator("#frame").locator("section.slide")).toHaveText("an old slide");
 });
+
+// ---------------------------------------------------------------- notes
+
+test("speaker notes show on a toggle and follow the slides", async ({ page }) => {
+  await importPack(page, PACK);
+  await expect(page.frameLocator("#frame").locator("section.slide.active")).toHaveCount(1);
+  const deck = page.frameLocator("#frame");
+  const panel = deck.locator("#t2hv-notes");
+  await expect(panel).toHaveCount(0);                            // off when a deck opens
+
+  // a slide without notes
+  await page.keyboard.press("n");
+  await expect(panel).toContainText("No notes for this slide");
+  await expect(page.locator("#toast")).toContainText("visible to anyone");
+
+  // the slide with notes in the template: its text and its bullet
+  const withNotes = await deckFrame(page).evaluate(() =>
+    [...document.querySelectorAll("section.slide")].findIndex((s) => s.querySelector("aside.note")));
+  expect(withNotes).toBeGreaterThan(0);
+  await deckFrame(page).evaluate((n) => { history.replaceState(null, "", "#" + (n + 1)); location.reload(); }, withNotes);
+  await expect.poll(() => activeSlide(page)).toBe(withNotes);
+  await expect(panel).toContainText("What to say on this slide.");
+  await expect(panel.locator("li", { hasText: "A talking point" })).toHaveCount(1);
+  await expect(panel).toContainText(`SLIDE ${withNotes + 1}`);
+
+  // a tap on the panel does not change the slide
+  await panel.evaluate((p) => {
+    const at = { bubbles: true, pointerType: "touch", clientX: 600, clientY: 600 };
+    p.dispatchEvent(new PointerEvent("pointerdown", at));
+    p.dispatchEvent(new PointerEvent("pointerup", at));
+  });
+  await page.waitForTimeout(300);
+  expect(await activeSlide(page)).toBe(withNotes);
+
+  // the next slide: the panel follows
+  await page.keyboard.press("End");
+  await expect(panel).not.toContainText("What to say on this slide.");
+
+  await page.keyboard.press("n");
+  await expect(panel).toHaveCount(0);
+});
+
+test("notes are off whenever a deck is opened", async ({ page }) => {
+  await importPack(page, PACK);
+  await expect(page.frameLocator("#frame").locator("section.slide.active")).toHaveCount(1);
+  await page.keyboard.press("n");
+  await expect(page.frameLocator("#frame").locator("#t2hv-notes")).toHaveCount(1);
+  await closeViewer(page);
+  await page.locator(".deck-open").first().click();
+  await expect(page.frameLocator("#frame").locator("section.slide.active")).toHaveCount(1);
+  await expect(page.frameLocator("#frame").locator("#t2hv-notes")).toHaveCount(0);
+  await expect(page.locator("#notes")).toHaveAttribute("aria-pressed", "false");
+});
+
+test.describe("on a touch screen", () => {
+  test.use({ hasTouch: true });
+
+  test("a tap on the corner shows the bar and does not close the deck", async ({ page }) => {
+    await importPack(page, PACK);
+    await expect(page.frameLocator("#frame").locator("section.slide.active")).toHaveCount(1);
+    await page.waitForTimeout(3500);                         // the bar shown on opening hides
+    await expect(page.locator("#bar")).not.toHaveClass(/show/);
+    await page.touchscreen.tap(20, 20);                      // where ✕ appears
+    await expect(page.locator("#bar")).toHaveClass(/show/);
+    await page.waitForTimeout(500);
+    await expect(page.locator("#viewer")).toBeVisible();
+    await page.locator("#notes").tap();                      // a second tap uses the bar
+    await expect(page.frameLocator("#frame").locator("#t2hv-notes")).toHaveCount(1);
+  });
+});
