@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>tex2html viewer</title>
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<main id="library">
+  <header>
+    <h1>tex2html viewer</h1>
+    <p class="lead">Open a deck made with <code>tex2html --pack</code> and present it.</p>
+  </header>
+
+  <label id="drop" class="drop">
+    <input id="file" type="file" accept=".zip,application/zip" hidden>
+    <span class="drop-title">Open a pack (.zip)</span>
+    <span class="drop-hint">or drop it here</span>
+  </label>
+
+  <section id="progress" hidden>
+    <div class="progress-row">
+      <span id="progress-text">Importing…</span>
+      <button id="cancel" type="button" class="link">Cancel</button>
+    </div>
+    <progress id="progress-bar" max="1" value="0"></progress>
+  </section>
+
+  <p id="error" class="error" role="alert" hidden></p>
+
+  <section>
+    <h2>Decks</h2>
+    <ul id="decks" class="decks"></ul>
+    <p id="empty" class="empty" hidden>No decks yet. Make one with
+      <code>python3 path/to/tex2html --pack</code>, copy the zip to this device and open it above.</p>
+  </section>
+</main>
+
+<div id="viewer" hidden>
+  <iframe id="frame" title="Deck" allow="fullscreen"></iframe>
+  <div class="viewer-bar">
+    <button id="close" type="button" title="Back to decks">✕</button>
+    <button id="fullscreen" type="button" title="Full screen">⛶</button>
+  </div>
+</div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

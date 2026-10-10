@@ -1,0 +1,54 @@
+:root {
+  --bg: #f6f7f9; --fg: #1b1f24; --muted: #5d6673; --card: #fff; --line: #d9dee5;
+  --accent: #1f497d; --error: #b3261e;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #15181c; --fg: #e8eaed; --muted: #9aa3ad; --card: #1f2329; --line: #333a43;
+          --accent: #8ab4f8; --error: #f28b82; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); }
+[hidden] { display: none !important; }
+
+#library { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { margin: 0 0 4px; font-size: 1.6rem; }
+h2 { font-size: 1.05rem; margin: 28px 0 10px; color: var(--muted); font-weight: 600; }
+.lead { margin: 0; color: var(--muted); }
+code { font-size: 0.92em; }
+
+.drop { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 20px;
+        padding: 28px 16px; border: 2px dashed var(--line); border-radius: 12px; cursor: pointer;
+        background: var(--card); text-align: center; }
+.drop:hover, .drop.over { border-color: var(--accent); }
+.drop-title { font-weight: 600; color: var(--accent); font-size: 1.1rem; }
+.drop-hint { color: var(--muted); font-size: 0.9rem; }
+
+#progress { margin-top: 16px; }
+.progress-row { display: flex; justify-content: space-between; gap: 12px; font-size: 0.9rem; }
+progress { width: 100%; height: 8px; margin-top: 6px; accent-color: var(--accent); }
+.error { color: var(--error); margin-top: 16px; }
+.empty { color: var(--muted); }
+
+button { font: inherit; color: inherit; }
+.link { background: none; border: none; padding: 4px 6px; color: var(--accent); cursor: pointer; }
+.decks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.decks li { display: flex; align-items: center; gap: 8px; background: var(--card);
+            border: 1px solid var(--line); border-radius: 10px; padding: 4px 8px 4px 4px; }
+.deck-open { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start;
+             gap: 2px; padding: 10px 12px; background: none; border: none; cursor: pointer;
+             text-align: left; }
+.deck-title { font-weight: 600; }
+.deck-info { color: var(--muted); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis;
+             white-space: nowrap; max-width: 100%; }
+
+/* the deck fills the window; the small bar shows only on hover / focus */
+#viewer { position: fixed; inset: 0; background: #000; }
+#frame { width: 100%; height: 100%; border: 0; display: block; }
+.viewer-bar { position: absolute; top: 8px; left: 8px; display: flex; gap: 6px; opacity: 0;
+              transition: opacity 0.2s; }
+#viewer:hover .viewer-bar, .viewer-bar:focus-within { opacity: 1; }
+.viewer-bar button { width: 36px; height: 36px; border-radius: 18px; border: none; cursor: pointer;
+                     background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 16px; }
+@media (hover: none) { .viewer-bar { opacity: 0.35; } }
