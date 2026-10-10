@@ -12,14 +12,16 @@ Work in progress — see [PLAN.md](PLAN.md).
 cd web
 npm install
 npm run dev        # http://localhost:5173
-npm test           # Playwright, with the installed Chrome
+npm test           # Playwright, with the installed Chrome, on a production build
 npm run build      # static files in web/dist
 ```
 
-Decks are imported into the browser's private file storage (OPFS); the
-service worker (`web/public/sw.js`) serves `decks/<folder>/…` from there, so
-the deck's relative paths resolve. Service workers need `https://` or
-`localhost`.
+Decks are imported into the browser's private file storage (OPFS), or linked
+as a folder read in place (desktop Chrome and Edge). The service worker
+(`web/src/sw.js`, built by `vite.config.ts` with the list of files to cache)
+serves `decks/<folder>/…` and `links/<id>/…`, so a deck's relative paths
+resolve, and caches the app so it starts offline. Service workers need
+`https://` or `localhost`.
 
 `fixtures/template.zip` is tex2html's template deck, packed. Rebuild it from a
 tex2html checkout with `scripts/make-fixtures.sh ../tex2html`.

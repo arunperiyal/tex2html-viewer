@@ -145,12 +145,10 @@ files are replaced (re-pack, copy the folder over, open):
 
 - The viewer needs nothing from tex2html beyond what `--pack` writes today, so
   it opens any existing pack.
-- Two small deck.js changes, made in the tex2html repo, make it nicer; the
-  viewer works without them and uses them when present:
-  - keep `location.hash` (`#slide.step`) updated while navigating, so the
-    viewer (and a desktop reload) can resume where the talk was;
-  - hide the presenter-view hint (`S`) where a second window cannot open, as
-    inside the app.
+- deck.js already keeps `location.hash` (`#slide.step`) updated while
+  navigating; the viewer reads it to resume a deck where it was left.
+- One small deck.js change, for the Android app (M2), made in the tex2html
+  repo: hide the presenter-view hint (`S`) where a second window cannot open.
 - tex2html's README gets a short section pointing to the viewer.
 - Test packs in `fixtures/` are made from tex2html's template deck with
   `--pack`; a script rebuilds them from a tex2html checkout when deck.js
@@ -201,14 +199,17 @@ Each milestone ends with something usable.
    the fixture pack: import the template pack in a desktop browser and Chrome on
    Android, and every slide works (steps, MathJax, animations, TikZ); deployed
    to GitHub Pages.
-2. **M1 – web viewer.** Library, full-screen viewer, keys, resume, offline after
-   the first visit, persistent-storage status; open a folder in desktop Chrome
-   and Edge (read in place). In tex2html: the deck.js hash and presenter-hint
-   changes.
+2. **M1 – web viewer.** *Done.* Library, full-screen viewer (landscape on
+   phones, screen kept on, controls only on Esc or a tap in the corner), keys,
+   resume, back-button guard, offline after the first visit, installable,
+   persistent-storage status; open a folder in desktop Chrome and Edge (read in
+   place). Known: in Chrome on Android, the first Back after leaving full
+   screen is swallowed by Chrome, so closing a deck from full screen takes one
+   more press (the Android app handles Back itself).
 3. **M2 – Android app.** The same web code in a WebView, with native import and
    storage, "Open with" and the share menu, open a folder (read in place, with
    a kept permission), immersive full screen, keys, clicker and volume keys,
-   back guard.
+   back guard. In tex2html: the presenter-hint change.
 4. **M3 – large decks and release.** Performance with the 680 MB talk on both
    platforms, signed APK, README section in tex2html.
 
