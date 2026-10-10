@@ -92,13 +92,15 @@ tex2html-viewer/
   **service worker** answers requests for `/decks/<id>/…` from it. The app itself is cached by the service worker, so it
   starts offline after the first visit. It asks for persistent storage, so the
   browser does not clear large decks.
-- **Android:** a WebView shows the same web app, bundled in the APK. Import and
-  storage are native (faster for large zips, no browser storage limits): files
-  are unpacked to the app's internal storage under `decks/<id>/` and served with
-  `WebViewAssetLoader` under `https://appassets.androidplatform.net/`. A small
-  JavaScript bridge lets the web code list, import and delete decks.
-- A storage interface in the web code hides the difference: `listDecks`,
-  `importZip`, `deleteDeck`, `deckUrl`.
+- **Android:** a WebView shows the same web app, bundled in the APK and served
+  with `WebViewAssetLoader` under `https://appassets.androidplatform.net/`.
+  Decks are stored by the web app itself (file storage and service worker work
+  in the WebView, tested in M2), so there is one code path; in the app they are
+  app data, not subject to a browser's clean-up. Native storage stays an
+  option if M3 shows the WebView's storage is too slow or too small for very
+  large decks. Zips picked in the system picker, opened with the app or shared
+  to it are served to the page (`incoming/<token>`), which fetches and imports
+  them — faster than reading a picked file in slices.
 
 ### Import
 
@@ -138,9 +140,10 @@ mostly a copy (a pack's images are stored uncompressed).
   it opens any existing pack.
 - deck.js already keeps `location.hash` (`#slide.step`) updated while
   navigating; the viewer reads it to resume a deck where it was left.
-- One small deck.js change, for the Android app (M2), made in the tex2html
-  repo: hide the presenter-view hint (`S`) where a second window cannot open.
-- tex2html's README gets a short section pointing to the viewer.
+- `slides.html?nopresenter` (deck.js, added in M2): the Android app opens decks
+  this way, so the presenter view, which cannot open there, is left out of the
+  help and S does nothing. Older packs simply show it.
+- tex2html's README points phones and tablets to the viewer (added in M2).
 - Test packs in `fixtures/` are made from tex2html's template deck with
   `--pack`; a script rebuilds them from a tex2html checkout when deck.js
   changes.
@@ -193,11 +196,16 @@ Each milestone ends with something usable.
    persistent-storage status. Known: in Chrome on Android, the first Back after leaving full
    screen is swallowed by Chrome, so closing a deck from full screen takes one
    more press (the Android app handles Back itself).
-3. **M2 – Android app.** The same web code in a WebView, with native import and
-   storage, "Open with" and the share menu, immersive full screen, keys, clicker and volume keys,
-   back guard. In tex2html: the presenter-hint change.
+3. **M2 – Android app.** *Done.* The same web code in a WebView: the system
+   file picker, "Open with" and the share menu, immersive full screen in
+   landscape with the screen kept on, keys and clicker, volume keys as
+   previous / next, Back through the page's guard (handled natively, so the
+   Chrome quirk does not apply), links in a deck opened in the browser, no
+   internet permission. Debug APK built by GitHub Actions. In tex2html:
+   `slides.html?nopresenter` hides the presenter view, which cannot open in
+   the app.
 4. **M3 – large decks and release.** Performance with the 680 MB talk on both
-   platforms, signed APK, README section in tex2html.
+   platforms (import speed and storage limits in the WebView), signed APK.
 
 ## Later
 

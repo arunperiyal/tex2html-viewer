@@ -17,6 +17,11 @@ const bar = $<HTMLDivElement>("bar");
 const toast = $<HTMLDivElement>("toast");
 
 const touch = matchMedia("(pointer: coarse)").matches;
+
+/** Inside the Android app: it provides full screen, landscape and keeping the
+ * screen on natively (android/.../MainActivity.kt). */
+interface AppBridge { viewerOpened(): void; viewerClosed(): void; toggleFullscreen(): void }
+const app = (window as unknown as { TexViewer?: AppBridge }).TexViewer;
 let importing: AbortController | null = null;
 
 // the service worker serves the decks; nothing works without it
@@ -74,10 +79,12 @@ async function renderStorage() {
   const kept = await navigator.storage.persisted?.().catch(() => false);
   const used = est?.usage !== undefined ? `${mb(est.usage)} used` : "";
   const free = est?.quota !== undefined && est.usage !== undefined ? `, ${mb(est.quota - est.usage)} free` : "";
-  storageInfo.textContent = `Storage: ${used}${free}. ` + (kept
-    ? "Kept permanently by the browser."
-    : "The browser may clear it when the device is low on space; installing the viewer " +
-      "(the browser's “Install app” or “Add to home screen”) keeps decks safer.");
+  // in the app, decks are app data: the browser's eviction rules do not apply
+  const note = app ? ""
+    : kept ? " Kept permanently by the browser."
+    : " The browser may clear it when the device is low on space; installing the viewer " +
+      "(the browser's “Install app” or “Add to home screen”) keeps decks safer.";
+  storageInfo.textContent = `Storage: ${used}${free}.${note}`;
 }
 
 async function importFile(file: File) {
@@ -135,13 +142,17 @@ function savedPosition(d: Deck): string {
 function openDeck(d: Deck) {
   showError("");
   current = d;
-  frame.src = deckUrl(d) + savedPosition(d);
+  // in the app no second window can open: tell deck.js to leave out S
+  frame.src = deckUrl(d) + (app ? "?nopresenter" : "") + savedPosition(d);
   library.hidden = true;
   viewer.hidden = false;
   history.pushState({ viewer: true }, "");
   backArmed = false;
-  if (touch) enterFullscreen();             // phones: full screen and landscape
-  keepAwake();
+  if (app) app.viewerOpened();              // the app: immersive, landscape, awake
+  else {
+    if (touch) enterFullscreen();           // phones: full screen and landscape
+    keepAwake();
+  }
   clearInterval(positionTimer);
   positionTimer = window.setInterval(savePosition, 1000);
   showBar();
@@ -151,6 +162,7 @@ function closeDeck() {
   savePosition();
   clearInterval(positionTimer);
   current = null;
+  app?.viewerClosed();
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   wakeLock?.release().catch(() => {});
   wakeLock = null;
@@ -172,6 +184,13 @@ function closeFromUi() {
 }
 
 // the back button: a first press only warns, so a stray press does not end a talk
+function armBack() {
+  backArmed = true;
+  showToast("Press back again to close the deck");
+  setTimeout(() => { backArmed = false; }, 2500);
+}
+
+// browsers: Back goes through the history entry pushed when the deck opened
 window.addEventListener("popstate", () => {
   if (ignorePop) { ignorePop = false; return; }
   if (!current) return;
@@ -179,11 +198,17 @@ window.addEventListener("popstate", () => {
     closeDeck();
     return;
   }
-  backArmed = true;
   history.pushState({ viewer: true }, "");
-  showToast("Press back again to close the deck");
-  setTimeout(() => { backArmed = false; }, 2500);
+  armBack();
 });
+
+// the Android app calls this on Back while a deck is open (it does not use
+// the page's history, whose entries Chromium may skip)
+(window as unknown as { t2hvBack: () => void }).t2hvBack = () => {
+  if (!current) return;
+  if (backArmed) closeFromUi();
+  else armBack();
+};
 
 async function enterFullscreen() {
   try {
@@ -194,7 +219,8 @@ async function enterFullscreen() {
 }
 
 function toggleFullscreen() {
-  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  if (app) app.toggleFullscreen();
+  else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   else enterFullscreen();
   focusDeck();
 }
@@ -291,4 +317,15 @@ drop.addEventListener("drop", (e) => {
   const f = e.dataTransfer?.files?.[0];
   if (f) importFile(f);
 });
+// the Android app hands over zips opened with it ("Open with", share menu)
+(window as unknown as { t2hvImportUrl: (url: string, name: string) => Promise<void> }).t2hvImportUrl =
+  async (url, name) => {
+    try {
+      const blob = await (await fetch(url)).blob();
+      await importFile(new File([blob], name, { type: "application/zip" }));
+    } catch (e) {
+      showError(`Could not open ${name}: ${(e as Error).message}`);
+    }
+  };
+
 ready.then(render).catch((e: Error) => showError(e.message));

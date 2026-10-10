@@ -24,3 +24,23 @@ paths resolve, and caches the app so it starts offline. Service workers need
 
 `fixtures/template.zip` is tex2html's template deck, packed. Rebuild it from a
 tex2html checkout with `scripts/make-fixtures.sh ../tex2html`.
+
+## Development (Android)
+
+The Android app (`android/`) shows the same web app in a WebView: the build
+bundles `web/` (built with base `/`) into the APK, served under
+`https://appassets.androidplatform.net/`. It adds the system file picker,
+"Open with" and the share menu for zips, immersive full screen in landscape
+with the screen kept on, Back through the deck's guard, and the volume keys
+for previous / next.
+
+```sh
+cd android
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew assembleDebug   # needs a full JDK 17+
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Set `sdk.dir` in `android/local.properties` (or `ANDROID_HOME`) to the Android
+SDK. GitHub Actions builds the debug APK on every push (artifact
+`tex2html-viewer-debug-apk`).
+
