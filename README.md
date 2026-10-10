@@ -48,3 +48,12 @@ Set `sdk.dir` in `android/local.properties` (or `ANDROID_HOME`) to the Android
 SDK. GitHub Actions builds the debug APK on every push (artifact
 `tex2html-viewer-debug-apk`).
 
+### Releases
+
+Release APKs are shrunk (R8) and signed with the release key, which is kept
+outside the repo; `scripts/release-apk.sh` builds one and checks the
+signature (see the script for the Gradle properties it needs). Every release
+must be signed with the same key, or it will not install over the previous
+one. Release APKs are published on the
+[releases page](https://github.com/arunperiyal/tex2html-viewer/releases).
+

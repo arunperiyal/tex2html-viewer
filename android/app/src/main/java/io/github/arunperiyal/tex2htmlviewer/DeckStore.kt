@@ -45,6 +45,11 @@ class DeckStore(context: Context) {
         return JSONArray(decks)
     }
 
+    /** Bytes the decks take, and bytes free on the device. */
+    fun storage(): JSONObject = JSONObject()
+        .put("used", dir.listFiles { f -> f.name.endsWith(".zip") }.orEmpty().sumOf { it.length() })
+        .put("free", dir.usableSpace)
+
     fun delete(id: String) {
         open.remove(id)?.zip?.close()
         File(dir, "$id.json").delete()

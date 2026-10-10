@@ -23,6 +23,7 @@ const touch = matchMedia("(pointer: coarse)").matches;
 interface AppBridge {
   viewerOpened(): void; viewerClosed(): void; toggleFullscreen(): void;
   listDecks(): string; deleteDeck(id: string): void; cancelImport(): void;   // decks kept by the app
+  storage(): string;                                                          // {used, free} bytes
 }
 const app = (window as unknown as { TexViewer?: AppBridge }).TexViewer;
 let importing: AbortController | null = null;
@@ -88,10 +89,18 @@ function deckItem(d: Deck): HTMLLIElement {
 }
 
 async function renderStorage() {
-  const est = await navigator.storage.estimate().catch(() => null);
+  // in the app: its decks and the device's free space (the browser storage
+  // the WebView reports knows nothing of them)
+  let usage: number | undefined, quota: number | undefined;
+  if (app) {
+    const s = JSON.parse(app.storage()) as { used: number; free: number };
+    [usage, quota] = [s.used, s.used + s.free];
+  } else {
+    ({ usage, quota } = await navigator.storage.estimate().catch(() => ({} as StorageEstimate)));
+  }
   const kept = await navigator.storage.persisted?.().catch(() => false);
-  const used = est?.usage !== undefined ? `${mb(est.usage)} used` : "";
-  const free = est?.quota !== undefined && est.usage !== undefined ? `, ${mb(est.quota - est.usage)} free` : "";
+  const used = usage !== undefined ? `${mb(usage)} used` : "";
+  const free = quota !== undefined && usage !== undefined ? `, ${mb(quota - usage)} free` : "";
   // in the app, decks are app data: the browser's eviction rules do not apply
   const note = app ? ""
     : kept ? " Kept permanently by the browser."
