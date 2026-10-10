@@ -148,6 +148,9 @@ mostly a copy (a pack's images are stored uncompressed).
   (mirroring, casting), which the viewer says the first time. A presenter view
   with a second screen (slides on a projector, notes on the phone) is under
   Later.
+- Slide grid: the Slides button in the bar (or G) shows every slide as a
+  thumbnail; a tap goes to that slide, Back or Esc closes it. The grid is
+  deck.js's own (tex2html's G), so decks made before it have no Slides button.
 
 ### Working with tex2html
 

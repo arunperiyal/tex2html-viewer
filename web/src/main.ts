@@ -167,6 +167,7 @@ function openDeck(d: Deck) {
   showError("");
   current = d;
   setNotes(false);                          // never start a talk with notes showing
+  $("slides").hidden = true;                // until the deck shows it has a grid
   // in the app no second window can open: tell deck.js to leave out S
   frame.src = deckUrl(d) + (app ? "?nopresenter" : "") + savedPosition(d);
   library.hidden = true;
@@ -224,7 +225,7 @@ window.addEventListener("popstate", () => {
     return;
   }
   history.pushState({ viewer: true }, "");
-  armBack();
+  if (!closeGrid()) armBack();
 });
 
 // the Android app calls this on Back while a deck is open (it does not use
@@ -232,7 +233,7 @@ window.addEventListener("popstate", () => {
 (window as unknown as { t2hvBack: () => void }).t2hvBack = () => {
   if (!current) return;
   if (backArmed) closeFromUi();
-  else armBack();
+  else if (!closeGrid()) armBack();
 };
 
 async function enterFullscreen() {
@@ -287,11 +288,30 @@ function focusDeck() {
   frame.contentWindow?.focus();
 }
 
+/** The deck's slide grid (deck.js: G), in decks made by a tex2html that has it. */
+interface DeckGrid { open(): void; close(): void; toggle(): void; isOpen(): boolean }
+function deckGrid(): DeckGrid | undefined {
+  try {
+    return (frame.contentWindow as unknown as { deckGrid?: DeckGrid } | null)?.deckGrid;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Back, or Esc, while the grid is open: close it (true) instead. */
+function closeGrid(): boolean {
+  const grid = deckGrid();
+  if (!grid?.isOpen()) return false;
+  grid.close();
+  focusDeck();
+  return true;
+}
+
 /** The viewer's own keys, wherever the focus is: Esc shows the bar, F toggles
  * full screen (the viewer's, which also locks landscape on phones). */
 function viewerKey(e: KeyboardEvent): boolean {
   if (e.ctrlKey || e.metaKey || e.altKey) return false;
-  if (e.key === "Escape") toggleBar();
+  if (e.key === "Escape") { if (!closeGrid()) toggleBar(); }
   else if (e.key === "f" || e.key === "F") toggleFullscreen();
   else if (e.key === "n" || e.key === "N") setNotes(!notesOn);
   else return false;
@@ -304,6 +324,7 @@ frame.addEventListener("load", () => {
   if (!current) return;
   focusDeck();
   watchSlides();
+  $("slides").hidden = !deckGrid();          // older decks have no grid
   try {                                     // same origin: listen inside the deck
     frame.contentWindow?.addEventListener("keydown", viewerKey, { capture: true });
   } catch { /* nothing to listen to */ }
@@ -341,6 +362,7 @@ function barButton(id: string, action: () => void) {
 }
 barButton("close", closeFromUi);
 barButton("fullscreen", toggleFullscreen);
+barButton("slides", () => { deckGrid()?.toggle(); focusDeck(); });
 barButton("notes", () => { setNotes(!notesOn); focusDeck(); });
 
 // ---------------------------------------------------------------- notes
