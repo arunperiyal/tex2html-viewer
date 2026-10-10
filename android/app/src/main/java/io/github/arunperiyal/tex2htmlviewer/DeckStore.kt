@@ -7,9 +7,12 @@ import android.text.Html
 import android.webkit.WebResourceResponse
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
+import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 
 /**
@@ -116,8 +119,10 @@ class DeckStore(context: Context) {
         }
     }
 
-    /** A file of a deck, read from its zip; null if there is no such file. */
-    fun serve(id: String, path: String): WebResourceResponse? {
+    /** A file of a deck, read from its zip; null if there is no such file.
+     *  A Range request (a video seeking) gets that part of a file stored
+     *  uncompressed -- --pack stores videos and images so. */
+    fun serve(id: String, path: String, range: String?): WebResourceResponse? {
         val deck = open[id] ?: run {
             val meta = File(dir, "$id.json")
             val file = File(dir, "$id.zip")
@@ -129,8 +134,60 @@ class DeckStore(context: Context) {
         val entry = zip.getEntry(deck.root + path) ?: return null
         if (entry.isDirectory) return null
         val mime = MainActivity.mimeType(path)
-        return WebResourceResponse(mime, if (MainActivity.isText(path)) "utf-8" else null, zip.getInputStream(entry))
-            .apply { responseHeaders = mapOf("Cache-Control" to "no-cache", "Content-Length" to entry.size.toString()) }
+        val charset = if (MainActivity.isText(path)) "utf-8" else null
+        val size = entry.size
+        // no Content-Length: the WebView sets it (from available(), or the range)
+        val headers = mutableMapOf("Cache-Control" to "no-cache")
+        val part = if (entry.method == ZipEntry.STORED) {
+            headers["Accept-Ranges"] = "bytes"
+            range?.let { byteRange(it, size) }
+        } else null
+        if (part == null) {
+            return WebResourceResponse(mime, charset, zip.getInputStream(entry)).apply { responseHeaders = headers }
+        }
+        val (start, end) = part
+        if (start >= size || start > end) {
+            headers["Content-Range"] = "bytes */$size"
+            return WebResourceResponse(mime, charset, 416, "Range Not Satisfiable", headers,
+                                       ByteArrayInputStream(ByteArray(0)))
+        }
+        // the WebView skips to the first byte of the range itself (and sets
+        // Content-Length), but neither stops at the last nor marks the
+        // response partial: so the entry from its start, up to the last byte
+        headers["Content-Range"] = "bytes $start-$end/$size"
+        return WebResourceResponse(mime, charset, 206, "Partial Content", headers,
+                                   BoundedInputStream(zip.getInputStream(entry), end + 1))
+    }
+
+    /** "bytes=a-b", "bytes=a-" or "bytes=-n" -> (first, last byte); null if
+     *  not understood (the whole file is sent). */
+    private fun byteRange(range: String, size: Long): Pair<Long, Long>? {
+        val m = Regex("""^bytes=(\d*)-(\d*)$""").find(range.trim()) ?: return null
+        val (a, b) = m.destructured
+        return when {
+            a.isNotEmpty() -> a.toLong() to (if (b.isNotEmpty()) minOf(b.toLong(), size - 1) else size - 1)
+            b.isNotEmpty() -> maxOf(0L, size - b.toLong()) to size - 1
+            else -> null
+        }
+    }
+
+    /** At most `left` bytes of `input` (available() too: the WebView takes
+     *  the response's length from it). */
+    private class BoundedInputStream(private val input: InputStream, private var left: Long) : InputStream() {
+        override fun read(): Int {
+            if (left <= 0) return -1
+            val c = input.read()
+            if (c >= 0) left--
+            return c
+        }
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            if (left <= 0) return -1
+            val n = input.read(b, off, minOf(len.toLong(), left).toInt())
+            if (n > 0) left -= n
+            return n
+        }
+        override fun available() = minOf(input.available().toLong(), left).toInt()
+        override fun close() = input.close()
     }
 
     private fun size(uri: Uri): Long = try {

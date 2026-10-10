@@ -27,7 +27,7 @@ test("a pack imports and shows as slides", async ({ page }) => {
   await importPack(page, PACK);
   await expect(page.locator("#viewer")).toBeVisible();
   const deck = page.frameLocator("#frame");
-  await expect(deck.locator("section.slide")).toHaveCount(28);
+  await expect(deck.locator("section.slide")).toHaveCount(29);
   await expect(deck.locator("section.slide.active")).toHaveCount(1);
   await expect(deck.locator("mjx-container").first()).toBeAttached({ timeout: 20_000 });
 
@@ -55,7 +55,7 @@ test("a pack imports and shows as slides", async ({ page }) => {
 test("animation frames load from the deck", async ({ page }) => {
   await importPack(page, PACK);
   const frame = await (async () => {
-    await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(28);
+    await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(29);
     return page.frames().find((f) => f.url().includes("/decks/"))!;
   })();
   const src = await frame.evaluate(() => document.querySelector(".anim img[data-src]")?.getAttribute("data-src"));
@@ -65,13 +65,47 @@ test("animation frames load from the deck", async ({ page }) => {
   expect(status).toBe(200);
 });
 
+test("a video plays and seeks: its file is served in parts (Range)", async ({ page }) => {
+  await importPack(page, PACK);
+  await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(29);
+  const frame = page.frames().find((f) => f.url().includes("/decks/"))!;
+  const src = await frame.evaluate(() => document.querySelector("video")!.getAttribute("src")!);
+
+  // a part of the file, as a video asks for it
+  const part = await frame.evaluate(async (u) => {
+    const r = await fetch(u, { headers: { Range: "bytes=100-199" } });
+    return { status: r.status, range: r.headers.get("Content-Range"), bytes: (await r.arrayBuffer()).byteLength };
+  }, src);
+  expect(part.status).toBe(206);
+  expect(part.range).toMatch(/^bytes 100-199\/\d+$/);
+  expect(part.bytes).toBe(100);
+  const whole = await frame.evaluate(async (u) => (await fetch(u)).headers.get("Accept-Ranges"), src);
+  expect(whole).toBe("bytes");
+
+  // the video itself: it seeks where it is told to
+  const n = await frame.evaluate(() =>
+    [...document.querySelectorAll("section.slide")].findIndex((s) => s.querySelector("video")) + 1);
+  await frame.evaluate((n) => { location.hash = "#" + n; dispatchEvent(new HashChangeEvent("hashchange")); }, n);
+  const seeked = await frame.evaluate(() => new Promise<number>((resolve, reject) => {
+    const v = document.querySelector("video")!;
+    const go = () => {
+      v.pause();
+      v.addEventListener("seeked", () => resolve(v.currentTime), { once: true });
+      v.currentTime = 2.5;
+    };
+    v.addEventListener("error", () => reject(new Error("video error " + v.error?.code)));
+    if (v.readyState >= 1) go(); else { v.addEventListener("loadedmetadata", go, { once: true }); v.load(); }
+  }));
+  expect(seeked).toBeCloseTo(2.5, 1);
+});
+
 test("the deck stays in the library after a reload", async ({ page }) => {
   await importPack(page, PACK);
   await expect(page.locator("#viewer")).toBeVisible();
   await page.reload();
   await expect(page.locator("#decks li")).toHaveCount(1);
   await page.locator(".deck-open").first().click();
-  await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(28);
+  await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(29);
 });
 
 test("a zip without slides.html is refused", async ({ page }) => {
@@ -103,13 +137,13 @@ async function closeViewer(page: Page) {
 
 test("the app opens offline after the first visit", async ({ page, context }) => {
   await importPack(page, PACK);
-  await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(28);
+  await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(29);
   await closeViewer(page);
   await context.setOffline(true);
   await page.reload();
   await expect(page.locator("h1")).toHaveText("tex2html viewer");
   await page.locator(".deck-open").first().click();
-  await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(28);
+  await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(29);
   await context.setOffline(false);
 });
 
@@ -148,7 +182,7 @@ test("the back button closes the deck only on a second press", async ({ page }) 
 
 test("an imported deck is kept as its zip, not unpacked", async ({ page }) => {
   await importPack(page, PACK);
-  await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(28);
+  await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(29);
   const files = await page.evaluate(async () => {
     const decks = await (await navigator.storage.getDirectory()).getDirectoryHandle("decks");
     for await (const [, h] of decks as unknown as AsyncIterable<[string, FileSystemDirectoryHandle]>) {
