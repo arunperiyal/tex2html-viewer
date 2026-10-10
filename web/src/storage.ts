@@ -11,7 +11,6 @@
 import { entryStream, readEntries, safePath, ZipError, type ZipEntry } from "./zip";
 
 export interface Deck {
-  kind: "imported";
   folder: string;
   name: string;          // from the pack's folder (or the zip's name)
   title: string;         // the deck's <title>
@@ -39,7 +38,7 @@ export async function listDecks(): Promise<Deck[]> {
     if (h.kind !== "directory") continue;
     try {
       const f = await (await (h as FileSystemDirectoryHandle).getFileHandle(META)).getFile();
-      decks.push({ ...JSON.parse(await f.text()), kind: "imported" });
+      decks.push(JSON.parse(await f.text()));
     } catch {
       await dir.removeEntry(name, { recursive: true }).catch(() => {});   // unfinished import
     }
@@ -119,7 +118,7 @@ export async function importZip(file: File, onProgress: (p: Progress) => void,
     }
     const page = await (await dir.getFileHandle("slides.html")).getFile();
     const title = /<title>([^<]*)<\/title>/i.exec(await page.text())?.[1]?.trim() || name;
-    const deck: Deck = { kind: "imported", folder, name, title: decodeEntities(title), bytes: total,
+    const deck: Deck = { folder, name, title: decodeEntities(title), bytes: total,
                          files: files.length, importedAt: Date.now() };
     const w = await (await dir.getFileHandle(META, { create: true })).createWritable();
     await w.write(JSON.stringify(deck));

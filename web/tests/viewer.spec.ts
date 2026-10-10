@@ -88,7 +88,7 @@ test("a zip with unsafe paths is refused", async ({ page }) => {
 
 // ---------------------------------------------------------------- M1
 
-const deckFrame = (page: Page) => page.frames().find((f) => /\/(decks|links)\//.test(f.url()))!;
+const deckFrame = (page: Page) => page.frames().find((f) => f.url().includes("/decks/"))!;
 const activeSlide = (page: Page) => deckFrame(page)?.evaluate(() =>
   [...document.querySelectorAll("section.slide")].findIndex((s) => s.classList.contains("active")))
   .catch(() => -1);                                          // the deck is reloading
@@ -142,43 +142,4 @@ test("the back button closes the deck only on a second press", async ({ page }) 
   await expect(page.locator("#viewer")).toBeVisible();
   await page.evaluate(() => history.back());
   await expect(page.locator("#library")).toBeVisible();
-});
-
-/** Link the imported deck's own folder (in private storage) as if it had been
- * picked: the system folder picker cannot be driven by a test. */
-async function linkImportedFolder(page: Page) {
-  return page.evaluate(async () => {
-    const decks = await (await navigator.storage.getDirectory()).getDirectoryHandle("decks");
-    for await (const [, h] of decks as unknown as AsyncIterable<[string, FileSystemDirectoryHandle]>) {
-      return (window as unknown as { __t2hv: { linkFolderHandle(h: FileSystemDirectoryHandle): Promise<string> } })
-        .__t2hv.linkFolderHandle(h);
-    }
-  });
-}
-
-test("a linked folder is shown in place", async ({ page }) => {
-  await importPack(page, PACK);
-  await expect(page.locator("#viewer")).toBeVisible();
-  await closeViewer(page);
-  await linkImportedFolder(page);
-  const linked = page.locator("#decks li", { hasText: "linked folder" });
-  await expect(linked).toHaveCount(1);
-  await expect(linked.locator(".deck-delete")).toHaveText("Unlink");
-  await linked.locator(".deck-open").click();
-  await expect(page.frameLocator("#frame").locator("section.slide")).toHaveCount(28);
-  expect(deckFrame(page).url()).toContain("/links/");
-});
-
-test("a linked folder that is gone offers to link it again", async ({ page }) => {
-  await importPack(page, PACK);
-  await expect(page.locator("#viewer")).toBeVisible();
-  await closeViewer(page);
-  await linkImportedFolder(page);
-  page.once("dialog", (d) => d.accept());
-  await page.locator("#decks li", { hasNotText: "linked folder" }).locator(".deck-delete").click();
-  await expect(page.locator("#decks li")).toHaveCount(1);
-  await page.locator("#decks li .deck-open").click();
-  await expect(page.locator("#error")).toContainText("folder not found");
-  await expect(page.locator("#error-action")).toHaveText("Link again");
-  await expect(page.locator("#viewer")).toBeHidden();
 });

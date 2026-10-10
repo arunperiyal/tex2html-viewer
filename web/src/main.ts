@@ -1,20 +1,11 @@
-import {
-  canLinkFolders, ensureReadable, FolderError, linkFolder, linkFolderHandle, linkUrl,
-  listLinks, unlink, type LinkedDeck,
-} from "./links";
 import { deckUrl, deleteDeck, importZip, listDecks, mb, type Deck } from "./storage";
-
-type AnyDeck = Deck | LinkedDeck;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const fileInput = $<HTMLInputElement>("file");
 const drop = $<HTMLLabelElement>("drop");
-const linkButton = $<HTMLButtonElement>("link");
 const list = $<HTMLUListElement>("decks");
 const empty = $<HTMLParagraphElement>("empty");
-const errorBox = $<HTMLDivElement>("error");
-const errorText = $<HTMLSpanElement>("error-text");
-const errorAction = $<HTMLButtonElement>("error-action");
+const errorBox = $<HTMLParagraphElement>("error");
 const progress = $<HTMLElement>("progress");
 const progressBar = $<HTMLProgressElement>("progress-bar");
 const progressText = $<HTMLSpanElement>("progress-text");
@@ -44,47 +35,34 @@ const ready = (async () => {
 
 // ================================================================ library
 
-function showError(msg: string, action?: { label: string; run: () => void }) {
-  errorText.textContent = msg;
+function showError(msg: string) {
+  errorBox.textContent = msg;
   errorBox.hidden = !msg;
-  errorAction.hidden = !action;
-  errorAction.textContent = action?.label ?? "";
-  errorAction.onclick = action ? () => { showError(""); action.run(); } : null;
 }
 
 async function render() {
-  const decks: AnyDeck[] = [...await listDecks(), ...await listLinks()];
-  decks.sort((a, b) => added(b) - added(a));
+  const decks = await listDecks();
   list.replaceChildren(...decks.map(deckItem));
   empty.hidden = decks.length > 0;
   renderStorage();
 }
 
-const added = (d: AnyDeck) => (d.kind === "imported" ? d.importedAt : d.linkedAt);
-
-function deckItem(d: AnyDeck): HTMLLIElement {
+function deckItem(d: Deck): HTMLLIElement {
   const li = document.createElement("li");
   const open = document.createElement("button");
   open.className = "deck-open";
   open.innerHTML = `<span class="deck-title"></span><span class="deck-info"></span>`;
   open.querySelector(".deck-title")!.textContent = d.title;
-  const date = new Date(added(d)).toLocaleDateString();
-  open.querySelector(".deck-info")!.textContent = d.kind === "imported"
-    ? `${d.name} · ${mb(d.bytes)} · ${date}`
-    : `${d.name} · linked folder · ${date}`;
+  open.querySelector(".deck-info")!.textContent =
+    `${d.name} · ${mb(d.bytes)} · ${new Date(d.importedAt).toLocaleDateString()}`;
   open.addEventListener("click", () => openDeck(d));
   const remove = document.createElement("button");
   remove.className = "link deck-delete";
-  remove.textContent = d.kind === "imported" ? "Delete" : "Unlink";
-  remove.title = d.kind === "imported" ? "Delete this deck from the device"
-    : "Remove from the list (the folder is left untouched)";
+  remove.textContent = "Delete";
+  remove.title = "Delete this deck from the device";
   remove.addEventListener("click", async () => {
-    if (d.kind === "imported") {
-      if (!confirm(`Delete "${d.title}" from this device?`)) return;
-      await deleteDeck(d.folder);
-    } else {
-      await unlink(d.id);
-    }
+    if (!confirm(`Delete "${d.title}" from this device?`)) return;
+    await deleteDeck(d.folder);
     render();
   });
   li.append(open, remove);
@@ -127,29 +105,16 @@ async function importFile(file: File) {
   }
 }
 
-async function addFolder(relinkId?: string) {
-  showError("");
-  try {
-    await ready;
-    const deck = await linkFolder(relinkId);
-    if (!deck) return;
-    await render();
-    openDeck(deck);
-  } catch (e) {
-    showError(`Could not open the folder: ${(e as Error).message}`);
-  }
-}
-
 // ================================================================ viewer
 
-let current: AnyDeck | null = null;
+let current: Deck | null = null;
 let wakeLock: WakeLockSentinel | null = null;
 let positionTimer = 0;
 let barTimer = 0;
 let backArmed = false;
 let ignorePop = false;
 
-const positionKey = (d: AnyDeck) => `t2hv:pos:${d.kind}:${d.kind === "imported" ? d.name : d.id}`;
+const positionKey = (d: Deck) => `t2hv:pos:imported:${d.name}`;
 
 function savePosition() {
   if (!current) return;
@@ -159,7 +124,7 @@ function savePosition() {
   } catch { /* not loaded yet, or storage blocked */ }
 }
 
-function savedPosition(d: AnyDeck): string {
+function savedPosition(d: Deck): string {
   try {
     return localStorage.getItem(positionKey(d)) ?? "";
   } catch {
@@ -167,21 +132,10 @@ function savedPosition(d: AnyDeck): string {
   }
 }
 
-async function openDeck(d: AnyDeck) {
+function openDeck(d: Deck) {
   showError("");
-  if (d.kind === "linked") {
-    try {
-      await ensureReadable(d);              // may ask for permission: still in the click
-    } catch (e) {
-      const msg = (e as Error).message;
-      showError(`"${d.title}": ${msg}`, e instanceof FolderError && msg.startsWith("folder not found")
-        ? { label: "Link again", run: () => addFolder(d.id) } : undefined);
-      return;
-    }
-  }
   current = d;
-  const url = (d.kind === "imported" ? deckUrl(d) : linkUrl(d)) + savedPosition(d);
-  frame.src = url;
+  frame.src = deckUrl(d) + savedPosition(d);
   library.hidden = true;
   viewer.hidden = false;
   history.pushState({ viewer: true }, "");
@@ -337,12 +291,4 @@ drop.addEventListener("drop", (e) => {
   const f = e.dataTransfer?.files?.[0];
   if (f) importFile(f);
 });
-linkButton.hidden = !canLinkFolders;
-linkButton.addEventListener("click", () => addFolder());
-
-// for tests: link a folder handle without the system picker
-(window as unknown as { __t2hv: object }).__t2hv = {
-  linkFolderHandle: async (h: FileSystemDirectoryHandle) => { const d = await linkFolderHandle(h); await render(); return d.id; },
-};
-
 ready.then(render).catch((e: Error) => showError(e.message));
