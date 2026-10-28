@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
 
     private var pageReady = false
     private var viewerOpen = false
+    private var systemTextZoom = 100
     private var immersive = false
     private var pendingImport: Uri? = null
 
@@ -93,6 +94,7 @@ class MainActivity : ComponentActivity() {
             WindowInsetsCompat.CONSUMED
         }
 
+        systemTextZoom = web.settings.textZoom          // WebView's default: the font size setting
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -218,6 +220,9 @@ class MainActivity : ComponentActivity() {
         hideBars(open)
         requestedOrientation = if (open) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                                else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        // the system font size enlarges the library's text, but a slide is laid
+        // out at a fixed size: there larger text wraps and runs off the slide
+        web.settings.textZoom = if (open) 100 else systemTextZoom
         if (open) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
